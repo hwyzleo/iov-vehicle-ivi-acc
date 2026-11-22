@@ -135,6 +135,17 @@ class DemoEnvironment(context: Context) {
 
     fun closePrivacy() = answerPrivacy(PrivacyPromptOutcome.Dismissed)
 
+    /**
+     * Re-runs the device identity proof and reloads the agreements.
+     *
+     * Used when the gateway rejected the previous token (expired device certificate, revoked
+     * device session): the retry must re-prove, not repeat the same rejected call.
+     */
+    suspend fun reauthenticateAndReload() {
+        tokens.invalidateDeviceToken()
+        coordinator.reloadAgreements()
+    }
+
     /** Drops the local activation state, the sealed credentials and the in memory tokens. */
     suspend fun resetLocal() {
         coordinator.resetLocalStateForFactoryReset()

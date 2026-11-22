@@ -37,13 +37,15 @@ class SgwActivationCloudPort(
 ) : ActivationCloudPort {
 
     override suspend fun requestSession(input: SessionRequestInput): SessionRequestOutcome {
+        val token = tokens.authorizationToken()
+            ?: return SessionRequestOutcome.Failed(ErrorCategory.AUTH_REJECTED)
         val request = CloudRequest(
             operation = CloudOperation.REQUEST_SESSION,
             method = HttpMethod.POST,
             idempotencyKey = input.requestId,
             body = runCatching { codec.encodeSessionRequest(input) }.getOrNull()
                 ?: return SessionRequestOutcome.Failed(ErrorCategory.CONTRACT_REJECTED),
-            bearerToken = tokens.authorizationToken(),
+            bearerToken = token,
         )
         return when (val call = call(request)) {
             is CloudCall.Failed -> SessionRequestOutcome.Failed(call.category)
@@ -54,11 +56,13 @@ class SgwActivationCloudPort(
     }
 
     override suspend fun querySession(input: SessionQueryInput): SessionQueryOutcome {
+        val token = tokens.authorizationToken()
+            ?: return SessionQueryOutcome.Failed(ErrorCategory.AUTH_REJECTED)
         val request = CloudRequest(
             operation = CloudOperation.QUERY_SESSION,
             method = HttpMethod.GET,
             pathParams = mapOf("sessionId" to input.session.sessionId),
-            bearerToken = tokens.authorizationToken(),
+            bearerToken = token,
         )
         return when (val call = call(request)) {
             is CloudCall.Failed -> SessionQueryOutcome.Failed(call.category)
@@ -69,13 +73,15 @@ class SgwActivationCloudPort(
     }
 
     override suspend fun submitSkip(input: SkipRequestInput): SkipSubmitOutcome {
+        val token = tokens.authorizationToken()
+            ?: return SkipSubmitOutcome.Failed(ErrorCategory.AUTH_REJECTED)
         val request = CloudRequest(
             operation = CloudOperation.SUBMIT_SKIP,
             method = HttpMethod.POST,
             idempotencyKey = input.requestId,
             body = runCatching { codec.encodeSkip(input) }.getOrNull()
                 ?: return SkipSubmitOutcome.Failed(ErrorCategory.CONTRACT_REJECTED),
-            bearerToken = tokens.authorizationToken(),
+            bearerToken = token,
         )
         return when (val call = call(request)) {
             is CloudCall.Failed -> SkipSubmitOutcome.Failed(call.category)
@@ -89,11 +95,13 @@ class SgwActivationCloudPort(
     }
 
     override suspend fun issueLoginTicket(input: LoginTicketRequestInput): LoginTicketOutcome {
+        val token = tokens.authorizationToken()
+            ?: return LoginTicketOutcome.Failed(ErrorCategory.AUTH_REJECTED)
         val request = CloudRequest(
             operation = CloudOperation.ISSUE_LOGIN_TICKET,
             method = HttpMethod.POST,
             pathParams = mapOf("sessionId" to input.session.sessionId),
-            bearerToken = tokens.authorizationToken(),
+            bearerToken = token,
         )
         return when (val call = call(request)) {
             is CloudCall.Failed -> LoginTicketOutcome.Failed(call.category)
@@ -122,12 +130,14 @@ class SgwActivationCloudPort(
             net.hwyz.iov.vehicle.ivi.acc.data.cloud.codec.CloudReport.PRIVACY_AUTHORIZATION ->
                 codec.encodePrivacyReport(record)
         } ?: return RecordReportOutcome.Failed(ErrorCategory.CONTRACT_REJECTED)
+        val token = tokens.authorizationToken()
+            ?: return RecordReportOutcome.Failed(ErrorCategory.AUTH_REJECTED)
         val request = CloudRequest(
             operation = operation,
             method = HttpMethod.POST,
             idempotencyKey = record.id,
             body = body,
-            bearerToken = tokens.authorizationToken(),
+            bearerToken = token,
         )
         return when (val call = call(request)) {
             is CloudCall.Failed -> RecordReportOutcome.Failed(call.category)

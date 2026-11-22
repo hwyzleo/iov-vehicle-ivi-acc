@@ -323,6 +323,27 @@ class SgwActivationCloudPortTest {
     }
 
     @Test
+    @DisplayName("无 IAM 令牌时 fail-closed：不发起匿名请求，上报鉴权失败")
+    fun missingTokenFailsClosed() = runBlocking {
+        val unauthenticated = SgwActivationCloudPort(transport, codec, TokenProvider.None)
+        assertEquals(
+            SessionRequestOutcome.Failed(ErrorCategory.AUTH_REJECTED),
+            unauthenticated.requestSession(SessionRequestInput(vehicle, references, 1L, "req-nf")),
+        )
+        val gateway = SgwAgreementGateway(
+            transport = transport,
+            codec = codec,
+            tokens = TokenProvider.None,
+            languageProvider = { "zh-CN" },
+        )
+        assertEquals(
+            AgreementLoadOutcome.Failed(ErrorCategory.AUTH_REJECTED),
+            gateway.loadPublishedDocuments(),
+        )
+        assertEquals(0, server.requestCount)
+    }
+
+    @Test
     @DisplayName("路由未配置时快速失败，不发起请求")
     fun unconfiguredRoute() = runBlocking {
         val broken = SgwActivationCloudPort(

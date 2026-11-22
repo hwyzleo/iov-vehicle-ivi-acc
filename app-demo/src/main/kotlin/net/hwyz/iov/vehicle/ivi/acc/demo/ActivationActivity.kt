@@ -13,6 +13,7 @@ import net.hwyz.iov.vehicle.ivi.acc.demo.databinding.ActivityActivationBinding
 import net.hwyz.iov.vehicle.ivi.acc.domain.model.AgreementType
 import net.hwyz.iov.vehicle.ivi.acc.domain.state.ActivationOperation
 import net.hwyz.iov.vehicle.ivi.acc.domain.state.ActivationState
+import net.hwyz.iov.vehicle.ivi.acc.domain.state.ErrorCategory
 import net.hwyz.iov.vehicle.ivi.acc.domain.state.GuideState
 import net.hwyz.iov.vehicle.ivi.acc.domain.state.LoginState
 import net.hwyz.iov.vehicle.ivi.acc.domain.state.PrivacyChoice
@@ -39,8 +40,8 @@ class ActivationActivity : AppCompatActivity() {
 
         binding.cbPrivacy.setOnClickListener { viewModel.acceptPrivacyAgreement() }
         binding.cbUserAgreement.setOnClickListener { viewModel.acceptUserAgreement() }
-        binding.btnReloadAgreements.setOnClickListener { viewModel.reloadAgreements() }
-        binding.btnRetryAgreements.setOnClickListener { viewModel.reloadAgreements() }
+        binding.btnReloadAgreements.setOnClickListener { viewModel.retryCurrentError(viewModel.state.value) }
+        binding.btnRetryAgreements.setOnClickListener { viewModel.retryCurrentError(viewModel.state.value) }
         binding.btnViewPrivacy.setOnClickListener { showDocument(AgreementType.PRIVACY_POLICY) }
         binding.btnViewUserAgreement.setOnClickListener { showDocument(AgreementType.USER_AGREEMENT) }
         binding.btnRefreshSession.setOnClickListener { viewModel.refreshSession() }
@@ -96,7 +97,15 @@ class ActivationActivity : AppCompatActivity() {
             if (!loading && !hasDocuments) View.VISIBLE else View.GONE
 
         binding.tvAgreementError.text = buildString {
-            append(getString(R.string.agreement_unavailable_hint))
+            append(
+                when (state.documentsFailure) {
+                    ErrorCategory.AUTH_REJECTED -> getString(R.string.agreement_unavailable_auth)
+                    ErrorCategory.RETRYABLE, ErrorCategory.RESULT_UNKNOWN ->
+                        getString(R.string.agreement_unavailable_retry)
+
+                    else -> getString(R.string.agreement_unavailable_hint)
+                },
+            )
             state.documentsFailure?.let { append("\ncategory=").append(it.name) }
         }
 

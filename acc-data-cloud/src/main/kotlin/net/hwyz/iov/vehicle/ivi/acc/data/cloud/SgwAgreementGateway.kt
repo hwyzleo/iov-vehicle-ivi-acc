@@ -25,11 +25,15 @@ class SgwAgreementGateway(
 ) : AgreementGateway {
 
     override suspend fun loadPublishedDocuments(): AgreementLoadOutcome {
+        // Fail closed: without an IAM token the gateway would reject an anonymous call, so the car
+        // reports an authentication problem instead of pretending the agreements are missing.
+        val token = tokens.authorizationToken()
+            ?: return AgreementLoadOutcome.Failed(ErrorCategory.AUTH_REJECTED)
         val request = CloudRequest(
             operation = CloudOperation.LOAD_AGREEMENTS,
             method = HttpMethod.GET,
             query = mapOf("language" to languageProvider()),
-            bearerToken = tokens.authorizationToken(),
+            bearerToken = token,
         )
         val result = transport.execute(request)
         SgwOutcomeClassifier.classifyTransport(result)?.let { return AgreementLoadOutcome.Failed(it) }

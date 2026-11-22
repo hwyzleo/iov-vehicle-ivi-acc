@@ -2,7 +2,9 @@ package net.hwyz.iov.vehicle.ivi.acc.demo
 
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
 import net.hwyz.iov.vehicle.ivi.acc.domain.model.AgreementType
 import net.hwyz.iov.vehicle.ivi.acc.domain.state.ActivationOperation
 import net.hwyz.iov.vehicle.ivi.acc.domain.state.ActivationState
@@ -50,11 +52,21 @@ class ActivationViewModel(application: Application) : AndroidViewModel(applicati
 
     fun resetLocalState() = environment.coordinator.resetLocalStateForFactoryReset()
 
+    /** Re-proves the device identity and reloads the agreements after an authentication failure. */
+    fun reauthenticateAndReload() {
+        viewModelScope.launch { environment.reauthenticateAndReload() }
+    }
+
     /** Dispatches the retry action that matches the current recoverable error. */
     fun retryCurrentError(state: ActivationState) {
         val error = state.error ?: return
         when (error.operation) {
-            ActivationOperation.LOAD_AGREEMENTS -> reloadAgreements()
+            ActivationOperation.LOAD_AGREEMENTS ->
+                if (error.category == net.hwyz.iov.vehicle.ivi.acc.domain.state.ErrorCategory.AUTH_REJECTED) {
+                    reauthenticateAndReload()
+                } else {
+                    reloadAgreements()
+                }
             ActivationOperation.REQUEST_SESSION,
             ActivationOperation.QUERY_SESSION,
             -> if (state.skip == net.hwyz.iov.vehicle.ivi.acc.domain.state.SkipState.RESULT_UNKNOWN) {
