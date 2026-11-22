@@ -51,7 +51,7 @@ class SgwActivationCloudPortTest {
     private lateinit var server: MockWebServer
     private lateinit var transport: OkHttpSgwTransport
     private val vehicle = VehicleRef("LVINACC0000000001")
-    private val tokens = TokenProvider { "device-token" }
+    private val tokens = TokenProvider.fixed("device-token")
     private val codec = JsonCloudPayloadCodec()
 
     private val references = listOf(

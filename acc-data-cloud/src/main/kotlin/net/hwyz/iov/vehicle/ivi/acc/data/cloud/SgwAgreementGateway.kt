@@ -1,5 +1,6 @@
 package net.hwyz.iov.vehicle.ivi.acc.data.cloud
 
+import net.hwyz.iov.vehicle.ivi.acc.data.cloud.ciam.TokenOutcome
 import net.hwyz.iov.vehicle.ivi.acc.data.cloud.ciam.TokenProvider
 import net.hwyz.iov.vehicle.ivi.acc.data.cloud.codec.CloudPayloadCodec
 import net.hwyz.iov.vehicle.ivi.acc.data.cloud.codec.JsonCloudPayloadCodec
@@ -27,8 +28,10 @@ class SgwAgreementGateway(
     override suspend fun loadPublishedDocuments(): AgreementLoadOutcome {
         // Fail closed: without an IAM token the gateway would reject an anonymous call, so the car
         // reports an authentication problem instead of pretending the agreements are missing.
-        val token = tokens.authorizationToken()
-            ?: return AgreementLoadOutcome.Failed(ErrorCategory.AUTH_REJECTED)
+        val token = when (val outcome = tokens.authorizationToken()) {
+            is TokenOutcome.Available -> outcome.token
+            is TokenOutcome.Unavailable -> return AgreementLoadOutcome.Failed(outcome.category)
+        }
         val request = CloudRequest(
             operation = CloudOperation.LOAD_AGREEMENTS,
             method = HttpMethod.GET,

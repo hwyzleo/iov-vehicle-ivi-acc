@@ -67,10 +67,17 @@ class DemoEnvironment(context: Context) {
     private val localStore = ActivationLocalStores.create(context)
     private val materialStore = ActivationLocalStores.secureMaterialStore(context)
 
+    val logger: DiagnosticsLogger = object : DiagnosticsLogger {
+        override fun event(stage: String, vararg attributes: Pair<String, String>) {
+            Log.d(LOG_TAG, (listOf(stage) + attributes.map { "${it.first}=${it.second}" }).joinToString(" "))
+        }
+    }
+
     val tokens = IviTokenProvider(
         authClient = authClient,
         proofProvider = deviceProof,
         secureStore = materialStore,
+        logger = logger,
     )
 
     val agreementGateway = SgwAgreementGateway(
@@ -83,12 +90,6 @@ class DemoEnvironment(context: Context) {
 
     val privacyPrompt = DemoPrivacyPrompt()
     val privacyGateway = DesktopPrivacyConsentAdapter(seatRoleProvider, privacyPrompt)
-
-    val logger: DiagnosticsLogger = object : DiagnosticsLogger {
-        override fun event(stage: String, vararg attributes: Pair<String, String>) {
-            Log.d(LOG_TAG, (listOf(stage) + attributes.map { "${it.first}=${it.second}" }).joinToString(" "))
-        }
-    }
 
     private val config = ActivationConfig(
         sessionPoll = SessionPollPolicy(intervalMillis = 2_000L, timeoutMillis = 120_000L, maxAttempts = 60),

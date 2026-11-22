@@ -5,6 +5,7 @@ import kotlinx.coroutines.sync.withLock
 import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.AccountLoginGateway
 import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.LoginOutcome
 import net.hwyz.iov.vehicle.ivi.acc.domain.model.AccountRef
+import net.hwyz.iov.vehicle.ivi.acc.domain.log.DiagnosticsLogger
 import net.hwyz.iov.vehicle.ivi.acc.domain.model.LoginTicket
 import net.hwyz.iov.vehicle.ivi.acc.domain.state.ErrorCategory
 import net.hwyz.iov.vehicle.ivi.acc.domain.store.SecureMaterialStore
@@ -34,6 +35,7 @@ class IviTokenProvider(
     private val secureStore: SecureMaterialStore,
     private val config: IviTokenConfig = IviTokenConfig(),
     private val nowEpochMillis: () -> Long = System::currentTimeMillis,
+    private val logger: DiagnosticsLogger? = null,
 ) : TokenProvider {
 
     private data class Token(val value: String, val expiresAtEpochMillis: Long)
@@ -47,16 +49,25 @@ class IviTokenProvider(
     var lastFailure: ErrorCategory? = null
         private set
 
-    override suspend fun authorizationToken(): String? {
+    /** Human readable cause of the latest failure: an IAM business code or a local reason. */
+    var lastFailureReason: String? = null
+        private set
+
+    override suspend fun authorizationToken(): TokenOutcome {
         accessToken?.let { token ->
             if (token.expiresAtEpochMillis - nowEpochMillis() > config.userRenewWindowMillis) {
-                return token.value
+                return TokenOutcome.Available(token.value)
             }
         }
         if (sealedRefreshToken() != null && renewUserSession()) {
-            return accessToken?.value
+            accessToken?.let { return TokenOutcome.Available(it.value) }
         }
-        return ensureDeviceToken()?.value
+        val device = ensureDeviceToken()
+            ?: return TokenOutcome.Unavailable(
+                lastFailure ?: ErrorCategory.AUTH_REJECTED,
+                lastFailureReason,
+            )
+        return TokenOutcome.Available(device.value)
     }
 
     /** Current account when a user session is present. */
@@ -74,7 +85,7 @@ class IviTokenProvider(
         )
         when (val outcome = authClient.exchangeBindingTicket(ticket, device.value)) {
             is CiamTokenOutcome.Failed -> {
-                lastFailure = outcome.category
+                fail(outcome.category, "binding-ticket:${outcome.code ?: "-"}")
                 LoginOutcome.Failed(outcome.category)
             }
 
@@ -111,15 +122,15 @@ class IviTokenProvider(
                 return token
             }
         }
-        val proof = runCatching { proofProvider.deviceProof() }.getOrNull()
-            ?: run {
-                // Fail closed: no proof, no call.
-                lastFailure = ErrorCategory.AUTH_REJECTED
+        val proof = runCatching { proofProvider.deviceProof() }
+            .getOrElse { error ->
+                // Fail closed: no proof, no call. The cause is logged without any secret.
+                fail(ErrorCategory.AUTH_REJECTED, "device-proof-unavailable:${error.javaClass.simpleName}")
                 return null
             }
         return when (val outcome = authClient.requestDeviceToken(proof)) {
             is CiamTokenOutcome.Failed -> {
-                lastFailure = outcome.category
+                fail(outcome.category, "device-identity:${outcome.code ?: "-"}")
                 null
             }
 
@@ -129,6 +140,8 @@ class IviTokenProvider(
             ).also {
                 deviceToken = it
                 lastFailure = null
+                lastFailureReason = null
+                logger?.event("token.device_issued", "expires_in" to outcome.expiresInSeconds.toString())
             }
         }
     }
@@ -175,6 +188,12 @@ class IviTokenProvider(
                 nowEpochMillis() + DEFAULT_REFRESH_TTL_MILLIS,
             )
         }
+    }
+
+    private fun fail(category: ErrorCategory, reason: String) {
+        lastFailure = category
+        lastFailureReason = reason
+        logger?.event("token.failed", "category" to category.name, "reason" to reason)
     }
 
     private suspend fun sealedRefreshToken(): String? = secureStore.sealed(config.refreshKey)

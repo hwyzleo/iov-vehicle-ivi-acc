@@ -58,7 +58,11 @@ sealed interface CiamTokenOutcome {
         val clientType: String? = null,
     ) : CiamTokenOutcome
 
-    data class Failed(val category: ErrorCategory) : CiamTokenOutcome
+    data class Failed(
+        val category: ErrorCategory,
+        val code: String? = null,
+        val message: String? = null,
+    ) : CiamTokenOutcome
 }
 
 /**
@@ -119,13 +123,18 @@ class CiamAuthClient(
         } catch (error: IOException) {
             TransportResult(statusCode = 0, failure = TransportFailure.IO_ERROR)
         }
-        SgwOutcomeClassifier.classifyTransport(result)?.let { return CiamTokenOutcome.Failed(it) }
+        SgwOutcomeClassifier.classifyTransport(result)?.let {
+            return CiamTokenOutcome.Failed(it, code = "http-${result.statusCode}")
+        }
         val envelope = SgwOutcomeClassifier.parse(result.body)
-            ?: return CiamTokenOutcome.Failed(ErrorCategory.CONTRACT_REJECTED)
-        SgwOutcomeClassifier.categoryOf(envelope.code)?.let { return CiamTokenOutcome.Failed(it) }
-        val data = envelope.objectData ?: return CiamTokenOutcome.Failed(ErrorCategory.CONTRACT_REJECTED)
+            ?: return CiamTokenOutcome.Failed(ErrorCategory.CONTRACT_REJECTED, code = "unparsable")
+        SgwOutcomeClassifier.categoryOf(envelope.code)?.let {
+            return CiamTokenOutcome.Failed(it, code = envelope.code, message = envelope.message)
+        }
+        val data = envelope.objectData
+            ?: return CiamTokenOutcome.Failed(ErrorCategory.CONTRACT_REJECTED, code = "no-data")
         val accessToken = data.string("access_token")
-            ?: return CiamTokenOutcome.Failed(ErrorCategory.CONTRACT_REJECTED)
+            ?: return CiamTokenOutcome.Failed(ErrorCategory.CONTRACT_REJECTED, code = "no-access-token")
         val expiresIn = (data["expires_in"] as? kotlinx.serialization.json.JsonPrimitive)
             ?.content?.toLongOrNull() ?: DEFAULT_ACCESS_TTL_SECONDS
         return CiamTokenOutcome.Issued(

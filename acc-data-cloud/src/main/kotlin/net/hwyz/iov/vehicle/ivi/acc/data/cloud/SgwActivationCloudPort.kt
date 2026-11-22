@@ -1,6 +1,7 @@
 package net.hwyz.iov.vehicle.ivi.acc.data.cloud
 
 import kotlinx.serialization.json.JsonObject
+import net.hwyz.iov.vehicle.ivi.acc.data.cloud.ciam.TokenOutcome
 import net.hwyz.iov.vehicle.ivi.acc.data.cloud.ciam.TokenProvider
 import net.hwyz.iov.vehicle.ivi.acc.data.cloud.codec.CloudPayloadCodec
 import net.hwyz.iov.vehicle.ivi.acc.data.cloud.codec.JsonCloudPayloadCodec
@@ -37,8 +38,10 @@ class SgwActivationCloudPort(
 ) : ActivationCloudPort {
 
     override suspend fun requestSession(input: SessionRequestInput): SessionRequestOutcome {
-        val token = tokens.authorizationToken()
-            ?: return SessionRequestOutcome.Failed(ErrorCategory.AUTH_REJECTED)
+        val token = when (val outcome = tokens.authorizationToken()) {
+            is TokenOutcome.Available -> outcome.token
+            is TokenOutcome.Unavailable -> return SessionRequestOutcome.Failed(outcome.category)
+        }
         val request = CloudRequest(
             operation = CloudOperation.REQUEST_SESSION,
             method = HttpMethod.POST,
@@ -56,8 +59,10 @@ class SgwActivationCloudPort(
     }
 
     override suspend fun querySession(input: SessionQueryInput): SessionQueryOutcome {
-        val token = tokens.authorizationToken()
-            ?: return SessionQueryOutcome.Failed(ErrorCategory.AUTH_REJECTED)
+        val token = when (val outcome = tokens.authorizationToken()) {
+            is TokenOutcome.Available -> outcome.token
+            is TokenOutcome.Unavailable -> return SessionQueryOutcome.Failed(outcome.category)
+        }
         val request = CloudRequest(
             operation = CloudOperation.QUERY_SESSION,
             method = HttpMethod.GET,
@@ -73,8 +78,10 @@ class SgwActivationCloudPort(
     }
 
     override suspend fun submitSkip(input: SkipRequestInput): SkipSubmitOutcome {
-        val token = tokens.authorizationToken()
-            ?: return SkipSubmitOutcome.Failed(ErrorCategory.AUTH_REJECTED)
+        val token = when (val outcome = tokens.authorizationToken()) {
+            is TokenOutcome.Available -> outcome.token
+            is TokenOutcome.Unavailable -> return SkipSubmitOutcome.Failed(outcome.category)
+        }
         val request = CloudRequest(
             operation = CloudOperation.SUBMIT_SKIP,
             method = HttpMethod.POST,
@@ -95,8 +102,10 @@ class SgwActivationCloudPort(
     }
 
     override suspend fun issueLoginTicket(input: LoginTicketRequestInput): LoginTicketOutcome {
-        val token = tokens.authorizationToken()
-            ?: return LoginTicketOutcome.Failed(ErrorCategory.AUTH_REJECTED)
+        val token = when (val outcome = tokens.authorizationToken()) {
+            is TokenOutcome.Available -> outcome.token
+            is TokenOutcome.Unavailable -> return LoginTicketOutcome.Failed(outcome.category)
+        }
         val request = CloudRequest(
             operation = CloudOperation.ISSUE_LOGIN_TICKET,
             method = HttpMethod.POST,
@@ -130,8 +139,10 @@ class SgwActivationCloudPort(
             net.hwyz.iov.vehicle.ivi.acc.data.cloud.codec.CloudReport.PRIVACY_AUTHORIZATION ->
                 codec.encodePrivacyReport(record)
         } ?: return RecordReportOutcome.Failed(ErrorCategory.CONTRACT_REJECTED)
-        val token = tokens.authorizationToken()
-            ?: return RecordReportOutcome.Failed(ErrorCategory.AUTH_REJECTED)
+        val token = when (val outcome = tokens.authorizationToken()) {
+            is TokenOutcome.Available -> outcome.token
+            is TokenOutcome.Unavailable -> return RecordReportOutcome.Failed(outcome.category)
+        }
         val request = CloudRequest(
             operation = operation,
             method = HttpMethod.POST,

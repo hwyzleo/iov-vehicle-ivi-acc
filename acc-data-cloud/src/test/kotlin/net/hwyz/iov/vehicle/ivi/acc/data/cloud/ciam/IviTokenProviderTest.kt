@@ -73,7 +73,7 @@ class IviTokenProviderTest {
     fun deviceTokenIsUsedAsBearer() = runBlocking {
         server.enqueue(tokenResponse())
         val tokens = provider()
-        assertTrue(tokens.authorizationToken()!!.startsWith("eyJhbGciOiJSUzI1NiJ9."))
+        assertTrue(tokenOf(tokens).startsWith("eyJhbGciOiJSUzI1NiJ9."))
 
         val request = server.takeRequest()
         assertEquals("/api/ivi/auth/v1/token", request.path)
@@ -105,7 +105,7 @@ class IviTokenProviderTest {
         assertEquals("refresh-1", store.sealed("ivi.refresh"))
         assertEquals(AccountRef("account-001"), tokens.signedInAccount())
         // The user token is now the bearer used for business calls.
-        assertEquals(jwt("account-001"), tokens.authorizationToken())
+        assertEquals(jwt("account-001"), tokenOf(tokens))
     }
 
     @Test
@@ -134,7 +134,7 @@ class IviTokenProviderTest {
         // The device token has also expired: the provider re-proves before renewing the user token.
         server.enqueue(tokenResponse(sub = "device-account"))
         server.enqueue(tokenResponse(refresh = "refresh-2"))
-        assertTrue(tokens.authorizationToken()!!.isNotEmpty())
+        assertTrue(tokenOf(tokens).isNotEmpty())
 
         server.takeRequest() // device token re-proof
         val refreshRequest = server.takeRequest()
@@ -159,7 +159,7 @@ class IviTokenProviderTest {
         now += 55 * 60_000L
         server.enqueue(tokenResponse(sub = "device-account"))
         server.enqueue(MockResponse().setBody("""{"code":"701304","message":"令牌无效"}"""))
-        assertTrue(tokens.authorizationToken()!!.isNotEmpty())
+        assertTrue(tokenOf(tokens).isNotEmpty())
         assertNull(store.sealed("ivi.refresh"))
     }
 
@@ -167,9 +167,15 @@ class IviTokenProviderTest {
     @DisplayName("未配置设备证明时 fail-closed，不发起请求")
     fun missingProofFailsClosed() = runBlocking {
         val tokens = provider(DeviceProofProvider.Unconfigured)
-        assertNull(tokens.authorizationToken())
+        val outcome = tokens.authorizationToken()
+        assertTrue(outcome is TokenOutcome.Unavailable)
+        assertEquals(ErrorCategory.AUTH_REJECTED, (outcome as TokenOutcome.Unavailable).category)
+        assertTrue(outcome.reason!!.startsWith("device-proof-unavailable"))
         assertEquals(0, server.requestCount)
     }
+
+    private suspend fun tokenOf(tokens: IviTokenProvider): String =
+        (tokens.authorizationToken() as TokenOutcome.Available).token
 
     private companion object {
         const val DEVICE_GRANT = "urn:openiov:params:oauth:grant-type:device-identity"
