@@ -3,8 +3,8 @@ package net.hwyz.iov.vehicle.ivi.acc.data.cloud
 import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.ActivationCloudPort
 import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.AgreementGateway
 import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.AgreementLoadOutcome
-import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.LoginMaterialOutcome
-import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.LoginMaterialRequestInput
+import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.LoginTicketOutcome
+import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.LoginTicketRequestInput
 import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.RecordReportInput
 import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.RecordReportOutcome
 import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.SessionQueryInput
@@ -16,7 +16,7 @@ import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.SkipSubmitOutcome
 import net.hwyz.iov.vehicle.ivi.acc.domain.model.AgreementBundle
 import net.hwyz.iov.vehicle.ivi.acc.domain.model.AgreementDocument
 import net.hwyz.iov.vehicle.ivi.acc.domain.model.AgreementType
-import net.hwyz.iov.vehicle.ivi.acc.domain.model.LoginMaterial
+import net.hwyz.iov.vehicle.ivi.acc.domain.model.LoginTicket
 import net.hwyz.iov.vehicle.ivi.acc.domain.model.PendingRecord
 import net.hwyz.iov.vehicle.ivi.acc.domain.model.SessionObservation
 import net.hwyz.iov.vehicle.ivi.acc.domain.model.SessionRef
@@ -58,10 +58,10 @@ class FakeActivationCloudPort(
 
     var skipOutcome: SkipSubmitOutcome = SkipSubmitOutcome.Acknowledged
 
-    var loginMaterialOutcomeFactory: (LoginMaterialRequestInput) -> LoginMaterialOutcome = {
-        LoginMaterialOutcome.Material(
-            LoginMaterial(
-                handle = "material-handle",
+    var loginTicketOutcomeFactory: (LoginTicketRequestInput) -> LoginTicketOutcome = {
+        LoginTicketOutcome.Ticket(
+            LoginTicket(
+                ticket = "ticket-handle",
                 expiresAtEpochMillis = nowEpochMillis() + 60_000L,
             ),
         )
@@ -84,9 +84,9 @@ class FakeActivationCloudPort(
         return skipOutcome
     }
 
-    override suspend fun requestLoginMaterial(
-        input: LoginMaterialRequestInput,
-    ): LoginMaterialOutcome = loginMaterialOutcomeFactory(input)
+    override suspend fun issueLoginTicket(
+        input: LoginTicketRequestInput,
+    ): LoginTicketOutcome = loginTicketOutcomeFactory(input)
 
     override suspend fun reportRecord(input: RecordReportInput): RecordReportOutcome {
         reportedRecords += input.record

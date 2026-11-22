@@ -37,7 +37,9 @@ class RecordSyncEngine(
     /** Uploads one batch of eligible records; returns how many were acknowledged. */
     suspend fun flush(limit: Int = 20): Int {
         var acknowledged = 0
-        val batch = recordStore.pending(limit)
+        val batch = recordStore.pending(limit).filter {
+            it.type == RecordType.LOGIN_RESULT || it.type == RecordType.PRIVACY_DECISION
+        }
         for (record in batch) {
             if (record.nextEligibleAtEpochMillis > wallClock.nowEpochMillis()) continue
             var totalAttempts = record.attempts
@@ -101,7 +103,20 @@ class RecordSyncEngine(
 
             RecordType.PRIVACY_DECISION -> privacyStore.markSync(scopeKey, PrivacySyncState.ACKNOWLEDGED)
 
-            RecordType.LOGIN_RESULT, RecordType.SKIP_ACTIVATION -> Unit
+            RecordType.LOGIN_RESULT -> {
+                // Agreement consent evidence rides along with the login result: acknowledge it too.
+                recordStore.pending(policy.maxAttempts * 8)
+                    .filter { it.scopeKey == scopeKey && it.type == RecordType.AGREEMENT_CONSENT }
+                    .forEach { recordStore.markAcknowledged(it.id) }
+                val remaining = recordStore
+                    .pending(policy.maxAttempts * 8)
+                    .filter { it.scopeKey == scopeKey && it.type == RecordType.AGREEMENT_CONSENT }
+                if (remaining.none { it.syncState == SyncState.PENDING }) {
+                    agreementStore.markSync(scopeKey, AgreementSyncState.ACKNOWLEDGED)
+                }
+            }
+
+            RecordType.SKIP_ACTIVATION -> Unit
         }
         logger.event("record.sync_state", "type" to type.name, "id" to id)
     }

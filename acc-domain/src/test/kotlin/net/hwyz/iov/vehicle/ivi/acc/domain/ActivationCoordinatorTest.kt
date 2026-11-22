@@ -9,6 +9,7 @@ import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.SkipSubmitOutcome
 import net.hwyz.iov.vehicle.ivi.acc.domain.model.AccountRef
 import net.hwyz.iov.vehicle.ivi.acc.domain.model.AgreementBundle
 import net.hwyz.iov.vehicle.ivi.acc.domain.model.AgreementType
+import net.hwyz.iov.vehicle.ivi.acc.domain.model.RecordType
 import net.hwyz.iov.vehicle.ivi.acc.domain.model.SessionObservation
 import net.hwyz.iov.vehicle.ivi.acc.domain.model.SyncState
 import net.hwyz.iov.vehicle.ivi.acc.domain.state.ActivationOperation
@@ -72,7 +73,7 @@ class ActivationCoordinatorTest {
         assertEquals(AccountRef("account-001"), state.account)
         assertEquals(PrivacyChoice.GRANTED, state.privacyChoice)
         assertEquals(PrivacySyncState.ACKNOWLEDGED, state.privacySync)
-        assertTrue(h.loginGateway.receivedMaterials.isNotEmpty())
+        assertTrue(h.loginGateway.receivedTickets.isNotEmpty())
         assertTrue(state.sessionBound)
     }
 
@@ -221,7 +222,7 @@ class ActivationCoordinatorTest {
         assertEquals(SkipState.ACKNOWLEDGED, state.skip)
         assertEquals(LoginState.SIGNED_OUT, state.login)
         assertEquals(AgreementSyncState.ACKNOWLEDGED, state.agreementSync)
-        assertTrue(h.loginGateway.receivedMaterials.isEmpty())
+        assertTrue(h.loginGateway.receivedTickets.isEmpty())
         assertTrue(state.entertainmentEntryAllowed)
         val skipRequestId = h.cloud.skipRequests.single().requestId
         assertEquals(SyncState.ACKNOWLEDGED, h.recordStore.records[skipRequestId]?.syncState)
@@ -277,14 +278,14 @@ class ActivationCoordinatorTest {
         val suggested = h.coordinator.state.value
         assertEquals(GuideState.ENTERED_LOCAL, suggested.guide)
         assertTrue(suggested.accountContinuationSuggested)
-        assertTrue(h.loginGateway.receivedMaterials.isEmpty())
+        assertTrue(h.loginGateway.receivedTickets.isEmpty())
 
         h.coordinator.acceptAccountContinuation()
         h.runCurrent()
         val continued = h.coordinator.state.value
         assertEquals(GuideState.ENTERED_ACCOUNT, continued.guide)
         assertEquals(LoginState.SIGNED_IN, continued.login)
-        assertTrue(h.loginGateway.receivedMaterials.isNotEmpty())
+        assertTrue(h.loginGateway.receivedTickets.isNotEmpty())
     }
 
     // ------------------------------------------------------------------ login recovery (A-004)
@@ -308,23 +309,23 @@ class ActivationCoordinatorTest {
         val recovered = h.coordinator.state.value
         assertEquals(GuideState.ENTERED_ACCOUNT, recovered.guide)
         assertEquals(LoginState.SIGNED_IN, recovered.login)
-        assertEquals(2, h.loginGateway.receivedMaterials.size)
+        assertEquals(2, h.loginGateway.receivedTickets.size)
     }
 
     @Test
-    fun `expired login material is not reused`() = runTest {
+    fun `expired login ticket is not reused`() = runTest {
         val h = harness(this.backgroundScope, testScheduler)
         h.startAndAcceptBoth()
-        h.cloud.materialOutcome = net.hwyz.iov.vehicle.ivi.acc.domain.gateway.LoginMaterialOutcome.Material(
-            net.hwyz.iov.vehicle.ivi.acc.domain.model.LoginMaterial(
-                handle = "stale-material",
+        h.cloud.ticketOutcome = net.hwyz.iov.vehicle.ivi.acc.domain.gateway.LoginTicketOutcome.Ticket(
+            net.hwyz.iov.vehicle.ivi.acc.domain.model.LoginTicket(
+                ticket = "stale-ticket",
                 expiresAtEpochMillis = h.clock.nowEpochMillis() - 1,
             ),
         )
         h.advanceToBind()
         val state = h.coordinator.state.value
         assertEquals(LoginState.RETRY_REQUIRED, state.login)
-        assertTrue(h.loginGateway.receivedMaterials.isEmpty())
+        assertTrue(h.loginGateway.receivedTickets.isEmpty())
         assertEquals(ErrorCategory.EXPIRED, state.error?.category)
     }
 
@@ -344,7 +345,7 @@ class ActivationCoordinatorTest {
         val state = restarted.state.value
         assertEquals(GuideState.ENTERED_ACCOUNT, state.guide)
         assertEquals(LoginState.SIGNED_IN, state.login)
-        assertTrue(h.loginGateway.receivedMaterials.size >= 2)
+        assertTrue(h.loginGateway.receivedTickets.size >= 2)
         // No unbind / rebind request was made: the skip path was never used.
         assertTrue(h.cloud.skipRequests.isEmpty())
         restarted.close()
@@ -423,7 +424,8 @@ class ActivationCoordinatorTest {
         h.advanceToBind()
         val pending = h.recordStore.records.values.filter { it.syncState == SyncState.PENDING }
         assertTrue(pending.isNotEmpty())
-        assertTrue(pending.all { it.attempts > 0 })
+        // Only the reportable records are uploaded; the consent evidence rides with the login result.
+        assertTrue(pending.filter { it.type == RecordType.LOGIN_RESULT }.all { it.attempts > 0 })
         // The cloud binding and the local login stay valid even when the upload is pending.
         assertEquals(LoginState.SIGNED_IN, h.coordinator.state.value.login)
         assertEquals(AgreementSyncState.PENDING, h.coordinator.state.value.agreementSync)
@@ -450,10 +452,7 @@ class ActivationCoordinatorTest {
         val h = harness(this.backgroundScope, testScheduler)
         h.startAndAcceptBoth()
         val requestsBefore = h.cloud.sessionRequests.size
-        h.materialStore.put(
-            net.hwyz.iov.vehicle.ivi.acc.domain.model.LoginMaterial("handle", Long.MAX_VALUE),
-            "secret",
-        )
+        h.materialStore.putSealed("handle", "secret", Long.MAX_VALUE)
         h.coordinator.resetLocalStateForFactoryReset()
         h.runCurrent()
 

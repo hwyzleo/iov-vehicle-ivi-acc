@@ -5,7 +5,7 @@ import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.LoginOutcome
 import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.PrivacyPromptResult
 import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.PrivacyScope
 import net.hwyz.iov.vehicle.ivi.acc.domain.model.AccountRef
-import net.hwyz.iov.vehicle.ivi.acc.domain.model.LoginMaterial
+import net.hwyz.iov.vehicle.ivi.acc.domain.model.LoginTicket
 import net.hwyz.iov.vehicle.ivi.acc.domain.model.VehicleRef
 import net.hwyz.iov.vehicle.ivi.acc.domain.state.ErrorCategory
 import net.hwyz.iov.vehicle.ivi.acc.domain.state.PrivacyChoice
@@ -75,12 +75,12 @@ class AdaptersTest {
     fun `expired login material is never accepted`() = runTest {
         var now = 1_000L
         val adapter = FakeAccountLoginAdapter(nowEpochMillis = { now })
-        val expired = LoginMaterial("handle", expiresAtEpochMillis = 900L)
+        val expired = LoginTicket("handle", expiresAtEpochMillis = 900L)
         assertEquals(LoginOutcome.Failed(ErrorCategory.EXPIRED), adapter.login(expired))
-        assertTrue(adapter.receivedMaterials.size == 1)
+        assertTrue(adapter.receivedTickets.size == 1)
 
         now = 2_000L
-        val valid = LoginMaterial("handle", expiresAtEpochMillis = 5_000L)
+        val valid = LoginTicket("handle", expiresAtEpochMillis = 5_000L)
         assertTrue(adapter.login(valid) is LoginOutcome.Success)
     }
 

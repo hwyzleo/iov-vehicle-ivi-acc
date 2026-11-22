@@ -29,6 +29,7 @@ import net.hwyz.iov.vehicle.ivi.acc.domain.log.DiagnosticsLogger
 import net.hwyz.iov.vehicle.ivi.acc.domain.log.RecordingDiagnosticsLogger
 import net.hwyz.iov.vehicle.ivi.acc.domain.model.AccountRef
 import net.hwyz.iov.vehicle.ivi.acc.domain.model.AgreementType
+import net.hwyz.iov.vehicle.ivi.acc.domain.model.RecordType
 import net.hwyz.iov.vehicle.ivi.acc.domain.model.SessionObservation
 import net.hwyz.iov.vehicle.ivi.acc.domain.model.SyncState
 import net.hwyz.iov.vehicle.ivi.acc.domain.model.VehicleRef
@@ -273,7 +274,7 @@ class ActivationEndToEndTest {
         assertEquals(GuideState.ENTERED_LOCAL, state.guide)
         assertEquals(SkipState.ACKNOWLEDGED, state.skip)
         assertEquals(LoginState.SIGNED_OUT, state.login)
-        assertTrue(wiring.loginGateway.receivedMaterials.isEmpty())
+        assertTrue(wiring.loginGateway.receivedTickets.isEmpty())
         assertEquals(GuideState.ENTERED_LOCAL, wiring.localStore.loadContext()?.guide)
         assertEquals(1, wiring.cloud.skipRequests.size)
         assertTrue(wiring.cloud.reportedRecords.isEmpty())
@@ -332,7 +333,8 @@ class ActivationEndToEndTest {
         testScheduler.advanceTimeBy(150L)
         testScheduler.runCurrent()
 
-        val pendingAfterFailure = wiring.localStore.pending(10)
+        // Only cloud reportable records are uploaded; consent evidence rides with the login result.
+        val pendingAfterFailure = wiring.localStore.pending(10).filter { it.type == RecordType.LOGIN_RESULT }
         assertTrue(pendingAfterFailure.isNotEmpty())
         val firstIds = pendingAfterFailure.map { it.id }.toSet()
 
@@ -341,7 +343,9 @@ class ActivationEndToEndTest {
         coordinator.onForeground()
         testScheduler.runCurrent()
 
-        assertTrue(wiring.localStore.pending(10).isEmpty())
+        assertTrue(
+            wiring.localStore.pending(10).filter { it.type == RecordType.LOGIN_RESULT }.isEmpty(),
+        )
         assertTrue(wiring.cloud.reportedRecords.map { it.id }.toSet().containsAll(firstIds))
         // Retried records keep their payload digest, so a repeat cannot create a new fact.
         val firstDigests = pendingAfterFailure.associate { it.id to it.payloadDigest }
@@ -453,13 +457,13 @@ class ActivationEndToEndTest {
         val suggested = coordinator.state.value
         assertEquals(GuideState.ENTERED_LOCAL, suggested.guide)
         assertTrue(suggested.accountContinuationSuggested)
-        assertTrue(wiring.loginGateway.receivedMaterials.isEmpty())
+        assertTrue(wiring.loginGateway.receivedTickets.isEmpty())
 
         coordinator.acceptAccountContinuation()
         testScheduler.runCurrent()
         val continued = coordinator.state.value
         assertEquals(GuideState.ENTERED_ACCOUNT, continued.guide)
-        assertEquals(1, wiring.loginGateway.receivedMaterials.size)
+        assertEquals(1, wiring.loginGateway.receivedTickets.size)
         // The skip record stays acknowledged and is never converted into a binding claim.
         assertEquals(SkipState.ACKNOWLEDGED, continued.skip)
         assertEquals(1, wiring.cloud.skipRequests.size)
@@ -483,7 +487,7 @@ class ActivationEndToEndTest {
         testScheduler.runCurrent()
 
         assertEquals(GuideState.ENTERED_ACCOUNT, coordinator.state.value.guide)
-        assertEquals(1, wiring.loginGateway.receivedMaterials.size)
+        assertEquals(1, wiring.loginGateway.receivedTickets.size)
         assertEquals(SkipState.IDLE, coordinator.state.value.skip)
     }
 }

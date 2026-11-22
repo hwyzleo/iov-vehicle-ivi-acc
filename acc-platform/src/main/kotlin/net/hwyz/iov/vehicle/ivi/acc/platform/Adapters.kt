@@ -6,7 +6,7 @@ import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.PrivacyConsentGateway
 import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.PrivacyPromptResult
 import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.PrivacyScope
 import net.hwyz.iov.vehicle.ivi.acc.domain.model.AccountRef
-import net.hwyz.iov.vehicle.ivi.acc.domain.model.LoginMaterial
+import net.hwyz.iov.vehicle.ivi.acc.domain.model.LoginTicket
 import net.hwyz.iov.vehicle.ivi.acc.domain.state.ErrorCategory
 import net.hwyz.iov.vehicle.ivi.acc.domain.state.PrivacyChoice
 
@@ -61,29 +61,29 @@ class DesktopPrivacyConsentAdapter(
 }
 
 /**
- * Scriptable local login capability.
+ * Scriptable login capability for tests and scripted demos.
  *
- * The adapter never generates user tokens itself; it consumes the short lived material that the
- * cloud adapter stored in the platform secure store.
+ * The adapter never generates user tokens itself: it only exchanges the one-time ticket in the
+ * simulated IAM (the production adapter lives in the cloud data layer).
  */
 class FakeAccountLoginAdapter(
     private val nowEpochMillis: () -> Long = System::currentTimeMillis,
 ) : AccountLoginGateway {
 
-    var outcomeFactory: (LoginMaterial) -> LoginOutcome = {
+    var outcomeFactory: (LoginTicket) -> LoginOutcome = {
         LoginOutcome.Success(AccountRef("account-demo"))
     }
-    val receivedMaterials = mutableListOf<LoginMaterial>()
+    val receivedTickets = mutableListOf<LoginTicket>()
     var signOutCount = 0
         private set
 
-    override suspend fun login(material: LoginMaterial): LoginOutcome {
-        receivedMaterials += material
-        if (material.isExpired(nowEpochMillis())) {
-            // Expired material is never reused.
+    override suspend fun login(ticket: LoginTicket): LoginOutcome {
+        receivedTickets += ticket
+        if (ticket.isExpired(nowEpochMillis())) {
+            // Expired tickets are never reused.
             return LoginOutcome.Failed(ErrorCategory.EXPIRED)
         }
-        return outcomeFactory(material)
+        return outcomeFactory(ticket)
     }
 
     override suspend fun signOutLocally() {

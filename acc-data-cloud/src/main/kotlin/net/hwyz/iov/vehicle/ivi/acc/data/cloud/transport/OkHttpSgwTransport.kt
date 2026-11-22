@@ -1,5 +1,6 @@
 package net.hwyz.iov.vehicle.ivi.acc.data.cloud.transport
 
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -9,32 +10,38 @@ import java.net.SocketTimeoutException
 import java.util.concurrent.TimeUnit
 
 /**
- * Minimal OkHttp transport.
+ * Minimal OkHttp transport (DSN-CR-002 D-003).
  *
  * Everything environment specific (base URL, per operation path, timeouts, TLS configuration)
  * comes from [SgwRouteConfig] and the injected client, so no endpoint is baked into business code.
+ * GET calls carry query parameters, POST calls carry the encoded body; both may carry a Bearer
+ * token issued by SEC-CIAM.
  */
 class OkHttpSgwTransport(
     private val routes: SgwRouteConfig,
     private val client: OkHttpClient = defaultClient(),
 ) : SgwTransport {
 
-    override suspend fun execute(
-        operation: CloudOperation,
-        idempotencyKey: String?,
-        body: String?,
-    ): TransportResult {
-        val path = routes.paths[operation]
+    override suspend fun execute(request: CloudRequest): TransportResult {
+        val template = routes.paths[request.operation]
             ?: return TransportResult(statusCode = 0, failure = TransportFailure.IO_ERROR)
-        val url = routes.baseUrl.trimEnd('/') + "/" + path.trimStart('/')
-        val requestBody = (body ?: "").toRequestBody(JSON_MEDIA_TYPE)
-        val request = Request.Builder()
-            .url(url)
-            .post(requestBody)
-            .apply { if (idempotencyKey != null) header("Idempotency-Key", idempotencyKey) }
-            .build()
+        val url = (routes.baseUrl.trimEnd('/') + resolvePath(template, request.pathParams))
+            .toHttpUrlOrNull()
+            ?.newBuilder()
+            ?.apply { request.query.forEach { (name, value) -> addQueryParameter(name, value) } }
+            ?.build()
+            ?: return TransportResult(statusCode = 0, failure = TransportFailure.IO_ERROR)
+
+        val builder = Request.Builder().url(url)
+        request.bearerToken?.let { builder.header("Authorization", "Bearer $it") }
+        request.idempotencyKey?.let { builder.header("Idempotency-Key", it) }
+        val httpRequest = when (request.method) {
+            HttpMethod.GET -> builder.get().build()
+            HttpMethod.POST -> builder.post((request.body ?: "").toRequestBody(JSON_MEDIA_TYPE)).build()
+        }
+
         return try {
-            client.newCall(request).execute().use { response ->
+            client.newCall(httpRequest).execute().use { response ->
                 TransportResult(
                     statusCode = response.code,
                     body = response.body?.string(),
@@ -47,6 +54,17 @@ class OkHttpSgwTransport(
             TransportResult(statusCode = 0, failure = TransportFailure.IO_ERROR)
         }
     }
+
+    private fun resolvePath(template: String, pathParams: Map<String, String>): String {
+        var resolved = template
+        pathParams.forEach { (name, value) ->
+            resolved = resolved.replace("{$name}", encodePathSegment(value))
+        }
+        return resolved
+    }
+
+    private fun encodePathSegment(value: String): String =
+        java.net.URLEncoder.encode(value, "UTF-8").replace("+", "%20")
 
     companion object {
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()

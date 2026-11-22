@@ -9,8 +9,8 @@ import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.AccountLoginGateway
 import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.ActivationCloudPort
 import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.AgreementGateway
 import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.AgreementLoadOutcome
-import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.LoginMaterialOutcome
-import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.LoginMaterialRequestInput
+import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.LoginTicketOutcome
+import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.LoginTicketRequestInput
 import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.LoginOutcome
 import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.PrivacyConsentGateway
 import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.PrivacyPromptResult
@@ -26,11 +26,11 @@ import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.SkipSubmitOutcome
 import net.hwyz.iov.vehicle.ivi.acc.domain.id.IdGenerator
 import net.hwyz.iov.vehicle.ivi.acc.domain.log.RecordingDiagnosticsLogger
 import net.hwyz.iov.vehicle.ivi.acc.domain.model.AccountRef
+import net.hwyz.iov.vehicle.ivi.acc.domain.model.LoginTicket
 import net.hwyz.iov.vehicle.ivi.acc.domain.model.AgreementAcceptance
 import net.hwyz.iov.vehicle.ivi.acc.domain.model.AgreementBundle
 import net.hwyz.iov.vehicle.ivi.acc.domain.model.AgreementDocument
 import net.hwyz.iov.vehicle.ivi.acc.domain.model.AgreementType
-import net.hwyz.iov.vehicle.ivi.acc.domain.model.LoginMaterial
 import net.hwyz.iov.vehicle.ivi.acc.domain.model.PendingRecord
 import net.hwyz.iov.vehicle.ivi.acc.domain.model.PrivacyDecision
 import net.hwyz.iov.vehicle.ivi.acc.domain.model.SessionObservation
@@ -190,8 +190,8 @@ class FakeCloudPort : ActivationCloudPort {
     var defaultQueryOutcome: SessionQueryOutcome =
         SessionQueryOutcome.Observed(SessionObservation.Active)
     var skipOutcome: SkipSubmitOutcome = SkipSubmitOutcome.Acknowledged
-    var materialOutcome: LoginMaterialOutcome = LoginMaterialOutcome.Material(
-        LoginMaterial(handle = "material-handle", expiresAtEpochMillis = Long.MAX_VALUE),
+    var ticketOutcome: LoginTicketOutcome = LoginTicketOutcome.Ticket(
+        LoginTicket(ticket = "ticket-handle", expiresAtEpochMillis = Long.MAX_VALUE),
     )
     var recordOutcome: RecordReportOutcome = RecordReportOutcome.Acknowledged
     var queryCount = 0
@@ -219,9 +219,9 @@ class FakeCloudPort : ActivationCloudPort {
         return skipOutcome
     }
 
-    override suspend fun requestLoginMaterial(
-        input: LoginMaterialRequestInput,
-    ): LoginMaterialOutcome = materialOutcome
+    override suspend fun issueLoginTicket(
+        input: LoginTicketRequestInput,
+    ): LoginTicketOutcome = ticketOutcome
 
     override suspend fun reportRecord(input: RecordReportInput): RecordReportOutcome {
         reportedRecordIds += input.record.id
@@ -232,12 +232,12 @@ class FakeCloudPort : ActivationCloudPort {
 class FakeLoginGateway(
     var outcome: LoginOutcome = LoginOutcome.Success(AccountRef("account-001")),
 ) : AccountLoginGateway {
-    val receivedMaterials = mutableListOf<LoginMaterial>()
+    val receivedTickets = mutableListOf<LoginTicket>()
     var signOutCount = 0
         private set
 
-    override suspend fun login(material: LoginMaterial): LoginOutcome {
-        receivedMaterials += material
+    override suspend fun login(ticket: LoginTicket): LoginOutcome {
+        receivedTickets += ticket
         return outcome
     }
 
@@ -358,14 +358,14 @@ class InMemoryRecordStore : PendingRecordStore {
 class InMemoryMaterialStore : SecureMaterialStore {
     val entries = mutableMapOf<String, String>()
 
-    override suspend fun put(material: LoginMaterial, secret: String) {
-        entries[material.handle] = secret
+    override suspend fun putSealed(key: String, secret: String, expiresAtEpochMillis: Long) {
+        entries[key] = secret
     }
 
-    override suspend fun get(handle: String): String? = entries[handle]
+    override suspend fun sealed(key: String): String? = entries[key]
 
-    override suspend fun clear(handle: String) {
-        entries.remove(handle)
+    override suspend fun clear(key: String) {
+        entries.remove(key)
     }
 
     override suspend fun clearAll() {

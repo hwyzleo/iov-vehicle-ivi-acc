@@ -1,7 +1,6 @@
 package net.hwyz.iov.vehicle.ivi.acc.domain.store
 
 import net.hwyz.iov.vehicle.ivi.acc.domain.model.AgreementAcceptance
-import net.hwyz.iov.vehicle.ivi.acc.domain.model.LoginMaterial
 import net.hwyz.iov.vehicle.ivi.acc.domain.model.PendingRecord
 import net.hwyz.iov.vehicle.ivi.acc.domain.model.PrivacyDecision
 import net.hwyz.iov.vehicle.ivi.acc.domain.state.AgreementSyncState
@@ -71,13 +70,18 @@ interface PendingRecordStore {
     suspend fun clearAll()
 }
 
-/** Platform secure storage for short lived login material. */
+/**
+ * Platform secure storage for sealed credentials (for example the device bound refresh token).
+ *
+ * Values never leave the platform layer in plaintext: callers pass the secret and only read it
+ * back through the same sealed store, and expired entries are dropped on read.
+ */
 interface SecureMaterialStore {
-    suspend fun put(material: LoginMaterial, secret: String)
+    suspend fun putSealed(key: String, secret: String, expiresAtEpochMillis: Long)
 
-    suspend fun get(handle: String): String?
+    suspend fun sealed(key: String): String?
 
-    suspend fun clear(handle: String)
+    suspend fun clear(key: String)
 
     suspend fun clearAll()
 }

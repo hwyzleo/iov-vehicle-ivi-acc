@@ -18,8 +18,8 @@ import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.AccountLoginGateway
 import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.ActivationCloudPort
 import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.AgreementGateway
 import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.AgreementLoadOutcome
-import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.LoginMaterialOutcome
-import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.LoginMaterialRequestInput
+import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.LoginTicketOutcome
+import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.LoginTicketRequestInput
 import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.LoginOutcome
 import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.PrivacyConsentGateway
 import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.PrivacyPromptResult
@@ -635,31 +635,31 @@ class ActivationCoordinator(
         persistFlowContext()
         val bindingOperationId = (current.session as? SessionObservation.BoundConfirmed)
             ?.bindingOperationId
-        val materialOutcome = cloud.requestLoginMaterial(
-            LoginMaterialRequestInput(vehicle, session, bindingOperationId),
+        val ticketOutcome = cloud.issueLoginTicket(
+            LoginTicketRequestInput(vehicle, session, bindingOperationId),
         )
-        val material = when (materialOutcome) {
-            is LoginMaterialOutcome.Material -> materialOutcome.material
-            is LoginMaterialOutcome.Failed -> {
+        val ticket = when (ticketOutcome) {
+            is LoginTicketOutcome.Ticket -> ticketOutcome.ticket
+            is LoginTicketOutcome.Failed -> {
                 loginSubmitted = false
-                dispatch(ActivationEvent.LoginFailed(generation, materialOutcome.category))
+                dispatch(ActivationEvent.LoginFailed(generation, ticketOutcome.category))
                 persistFlowContext()
                 logger.event(
-                    "login.material_failed",
-                    "category" to materialOutcome.category.name,
+                    "login.ticket_failed",
+                    "category" to ticketOutcome.category.name,
                 )
                 return
             }
         }
-        if (material.isExpired(wallClock.nowEpochMillis())) {
-            // Expired material is never reused; a retry requests a fresh one.
+        if (ticket.isExpired(wallClock.nowEpochMillis())) {
+            // A consumed or expired ticket is never reused; a retry requests a fresh one.
             loginSubmitted = false
             dispatch(ActivationEvent.LoginFailed(generation, ErrorCategory.EXPIRED))
             persistFlowContext()
-            logger.event("login.material_expired")
+            logger.event("login.ticket_expired")
             return
         }
-        when (val outcome = loginGateway.login(material)) {
+        when (val outcome = loginGateway.login(ticket)) {
             is LoginOutcome.Success -> {
                 val account = outcome.account
                 val firstInteractionCompleted = privacyStore.isFirstInteractionCompleted(
@@ -688,9 +688,40 @@ class ActivationCoordinator(
                 // A local login failure must not clear the confirmed cloud binding.
                 dispatch(ActivationEvent.LoginFailed(generation, outcome.category))
                 persistFlowContext()
+                enqueueLoginFailure(session, bindingOperationId)
                 logger.event("login.failed", "category" to outcome.category.name)
             }
         }
+    }
+
+    /**
+     * Reports the failed login attempt (DSN-CR-002 D-003 step 5).
+     *
+     * The record is best effort: it never changes the confirmed binding and reuses a stable id so a
+     * retry cannot create a second fact.
+     */
+    private suspend fun enqueueLoginFailure(session: SessionRef, bindingOperationId: String?) {
+        val account = _state.value.account ?: return
+        val now = wallClock.nowEpochMillis()
+        val scopeKey = ScopeKeys.accountVehicle(account, vehicle)
+        recordStore.enqueue(
+            PendingRecord.create(
+                id = ids.stable("login-failed", scopeKey, session.sessionId),
+                type = RecordType.LOGIN_RESULT,
+                scopeKey = scopeKey,
+                payload = RecordPayload.LoginResult(
+                    vin = vehicle.vin,
+                    accountId = account.accountId,
+                    sessionId = session.sessionId,
+                    bindingOperationId = bindingOperationId,
+                    loggedInAtEpochMillis = now,
+                    loginStatus = "FAILED",
+                    agreements = _state.value.acceptances.map { it.toReference() },
+                ),
+                createdAtEpochMillis = now,
+                userActionAtEpochMillis = now,
+            ),
+        )
     }
 
     private suspend fun persistAccountScopeRecords(account: AccountRef) {
@@ -732,6 +763,8 @@ class ActivationCoordinator(
                     sessionId = sessionId ?: "-",
                     bindingOperationId = bindingOperationId,
                     loggedInAtEpochMillis = now,
+                    loginStatus = "SUCCEEDED",
+                    agreements = references,
                 ),
                 createdAtEpochMillis = now,
                 userActionAtEpochMillis = now,

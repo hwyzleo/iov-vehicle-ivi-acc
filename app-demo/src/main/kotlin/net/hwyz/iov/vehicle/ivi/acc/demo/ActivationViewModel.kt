@@ -48,8 +48,6 @@ class ActivationViewModel(application: Application) : AndroidViewModel(applicati
 
     fun setRearSeat(rear: Boolean) = environment.setRearSeat(rear)
 
-    fun applyScenario(scenario: DemoScenario) = environment.applyScenario(scenario)
-
     fun resetLocalState() = environment.coordinator.resetLocalStateForFactoryReset()
 
     /** Dispatches the retry action that matches the current recoverable error. */
@@ -66,7 +64,7 @@ class ActivationViewModel(application: Application) : AndroidViewModel(applicati
             }
 
             ActivationOperation.SUBMIT_SKIP -> retrySkip()
-            ActivationOperation.REQUEST_LOGIN_MATERIAL, ActivationOperation.LOGIN -> retryLogin()
+            ActivationOperation.ISSUE_LOGIN_TICKET, ActivationOperation.LOGIN -> retryLogin()
             ActivationOperation.PRIVACY_PROMPT,
             ActivationOperation.PRIVACY_PERSIST,
             -> retryPrivacyPrompt()

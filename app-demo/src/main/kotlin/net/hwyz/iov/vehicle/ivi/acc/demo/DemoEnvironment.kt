@@ -7,68 +7,87 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import net.hwyz.iov.vehicle.ivi.acc.data.cloud.FakeActivationCloudPort
-import net.hwyz.iov.vehicle.ivi.acc.data.cloud.FakeAgreementGateway
+import net.hwyz.iov.vehicle.ivi.acc.data.cloud.SgwActivationCloudPort
+import net.hwyz.iov.vehicle.ivi.acc.data.cloud.SgwAgreementGateway
+import net.hwyz.iov.vehicle.ivi.acc.data.cloud.ciam.CiamAccountLoginGateway
+import net.hwyz.iov.vehicle.ivi.acc.data.cloud.ciam.CiamAuthClient
+import net.hwyz.iov.vehicle.ivi.acc.data.cloud.ciam.CiamRouteConfig
+import net.hwyz.iov.vehicle.ivi.acc.data.cloud.ciam.IviTokenProvider
+import net.hwyz.iov.vehicle.ivi.acc.data.cloud.ciam.KeystoreDeviceProofProvider
+import net.hwyz.iov.vehicle.ivi.acc.data.cloud.transport.OkHttpSgwTransport
+import net.hwyz.iov.vehicle.ivi.acc.data.cloud.transport.SgwRouteConfig
 import net.hwyz.iov.vehicle.ivi.acc.data.local.ActivationLocalStores
-import net.hwyz.iov.vehicle.ivi.acc.data.local.security.InMemorySecretBox
 import net.hwyz.iov.vehicle.ivi.acc.domain.ActivationCoordinator
 import net.hwyz.iov.vehicle.ivi.acc.domain.config.ActivationConfig
-import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.LoginOutcome
 import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.PrivacyScope
-import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.SessionQueryOutcome
-import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.SkipSubmitOutcome
 import net.hwyz.iov.vehicle.ivi.acc.domain.id.DefaultIdGenerator
 import net.hwyz.iov.vehicle.ivi.acc.domain.log.DiagnosticsLogger
-import net.hwyz.iov.vehicle.ivi.acc.domain.model.SessionObservation
 import net.hwyz.iov.vehicle.ivi.acc.domain.model.VehicleRef
 import net.hwyz.iov.vehicle.ivi.acc.domain.retry.RetryPolicy
 import net.hwyz.iov.vehicle.ivi.acc.domain.retry.SessionPollPolicy
-import net.hwyz.iov.vehicle.ivi.acc.domain.state.ErrorCategory
 import net.hwyz.iov.vehicle.ivi.acc.domain.state.PrivacyChoice
 import net.hwyz.iov.vehicle.ivi.acc.domain.sync.RecordSyncEngine
 import net.hwyz.iov.vehicle.ivi.acc.domain.time.SystemMonotonicClock
 import net.hwyz.iov.vehicle.ivi.acc.domain.time.SystemWallClock
 import net.hwyz.iov.vehicle.ivi.acc.platform.DesktopPrivacyConsentAdapter
-import net.hwyz.iov.vehicle.ivi.acc.platform.FakeAccountLoginAdapter
 import net.hwyz.iov.vehicle.ivi.acc.platform.PrivacyPrompt
 import net.hwyz.iov.vehicle.ivi.acc.platform.PrivacyPromptOutcome
 import net.hwyz.iov.vehicle.ivi.acc.platform.SeatRole
 import net.hwyz.iov.vehicle.ivi.acc.platform.StaticSeatRoleProvider
+import java.util.Locale
 
 /**
- * Demo wiring.
+ * Production wiring of the activation flow.
  *
- * The cloud, login and desktop capabilities are replaced by scriptable fakes so every acceptance
- * scenario (A-001..A-009) can be walked through without a cloud environment. Production wiring
- * would use [net.hwyz.iov.vehicle.ivi.acc.data.cloud.SgwActivationCloudPort] with a confirmed
- * payload codec.
+ * Every cloud interaction goes to the real gateway ([BuildConfig.SGW_BASE_URL]): agreements,
+ * sessions, skip, login tickets and receipts are IOV-TSP vehicle side routes, while device and
+ * user tokens are issued by SEC-CIAM. No scripted fake is wired here; the flow shows the real
+ * failure of a vehicle that has no published agreement or no provisioned device identity.
  */
 class DemoEnvironment(context: Context) {
 
-    val vehicle = VehicleRef("LVINACC0000000001")
+    val vehicle = VehicleRef(BuildConfig.DEMO_VIN)
     val seatRoleProvider = StaticSeatRoleProvider()
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
-    val agreementGateway = FakeAgreementGateway()
-    val cloud = FakeActivationCloudPort()
-    val loginGateway = FakeAccountLoginAdapter()
+    private val routes = SgwRouteConfig(
+        baseUrl = BuildConfig.SGW_BASE_URL,
+        paths = SgwRouteConfig.activationPaths,
+    )
+    private val transport = OkHttpSgwTransport(routes)
+
+    private val deviceProof = KeystoreDeviceProofProvider(
+        keyAlias = BuildConfig.DEVICE_KEY_ALIAS,
+    )
+    private val authClient = CiamAuthClient(
+        routes = CiamRouteConfig(baseUrl = BuildConfig.SGW_BASE_URL),
+        clientId = BuildConfig.CIAM_CLIENT_ID,
+    )
+    private val localStore = ActivationLocalStores.create(context)
+    private val materialStore = ActivationLocalStores.secureMaterialStore(context)
+
+    val tokens = IviTokenProvider(
+        authClient = authClient,
+        proofProvider = deviceProof,
+        secureStore = materialStore,
+    )
+
+    val agreementGateway = SgwAgreementGateway(
+        transport = transport,
+        tokens = tokens,
+        languageProvider = { Locale.getDefault().toLanguageTag().ifBlank { DEFAULT_LANGUAGE } },
+    )
+    val cloud = SgwActivationCloudPort(transport = transport, tokens = tokens)
+    val loginGateway = CiamAccountLoginGateway(tokens)
+
     val privacyPrompt = DemoPrivacyPrompt()
     val privacyGateway = DesktopPrivacyConsentAdapter(seatRoleProvider, privacyPrompt)
-
-    val localStore = ActivationLocalStores.create(context)
-    val materialStore = ActivationLocalStores.secureMaterialStore(context, InMemorySecretBox())
 
     val logger: DiagnosticsLogger = object : DiagnosticsLogger {
         override fun event(stage: String, vararg attributes: Pair<String, String>) {
             Log.d(LOG_TAG, (listOf(stage) + attributes.map { "${it.first}=${it.second}" }).joinToString(" "))
         }
-    }
-
-    init {
-        // Default demo state matches the current cloud reality: no agreement has been published yet,
-        // so the first screen must fail explicitly instead of pretending the documents exist.
-        agreementGateway.failure = ErrorCategory.RETRYABLE
     }
 
     private val config = ActivationConfig(
@@ -108,50 +127,6 @@ class DemoEnvironment(context: Context) {
         seatRoleProvider.seatRole = if (rear) SeatRole.REAR else SeatRole.FRONT
     }
 
-    /** Applies one of the scripted scenarios of the debug panel and re-runs the agreement load. */
-    fun applyScenario(scenario: DemoScenario) {
-        agreementGateway.failure =
-            if (scenario == DemoScenario.AGREEMENT_UNAVAILABLE) ErrorCategory.RETRYABLE else null
-        if (scenario != DemoScenario.AGREEMENT_UNAVAILABLE &&
-            scenario != DemoScenario.AGREEMENT_AVAILABLE
-        ) {
-            applyCloudScenario(scenario)
-        }
-        coordinator.reloadAgreements()
-    }
-
-    private fun applyCloudScenario(scenario: DemoScenario) {
-        loginGateway.outcomeFactory = {
-            LoginOutcome.Success(net.hwyz.iov.vehicle.ivi.acc.domain.model.AccountRef(DEMO_ACCOUNT))
-        }
-        cloud.skipOutcome = SkipSubmitOutcome.Acknowledged
-        cloud.defaultQueryOutcome = SessionQueryOutcome.Observed(SessionObservation.Active)
-        when (scenario) {
-            DemoScenario.BOUND -> cloud.defaultQueryOutcome =
-                SessionQueryOutcome.Observed(SessionObservation.BoundConfirmed("binding-demo"))
-
-            DemoScenario.WAITING -> cloud.defaultQueryOutcome =
-                SessionQueryOutcome.Observed(SessionObservation.Active)
-
-            DemoScenario.UNKNOWN -> cloud.defaultQueryOutcome =
-                SessionQueryOutcome.Failed(ErrorCategory.RESULT_UNKNOWN)
-
-            DemoScenario.EXPIRED -> cloud.defaultQueryOutcome =
-                SessionQueryOutcome.Observed(SessionObservation.Expired)
-
-            DemoScenario.LOGIN_FAILURE -> {
-                cloud.defaultQueryOutcome =
-                    SessionQueryOutcome.Observed(SessionObservation.BoundConfirmed("binding-demo"))
-                loginGateway.outcomeFactory = { LoginOutcome.Failed(ErrorCategory.RETRYABLE) }
-            }
-
-            DemoScenario.SKIP_TIMEOUT -> cloud.skipOutcome =
-                SkipSubmitOutcome.Failed(ErrorCategory.RESULT_UNKNOWN)
-
-            DemoScenario.AGREEMENT_UNAVAILABLE, DemoScenario.AGREEMENT_AVAILABLE -> Unit
-        }
-    }
-
     fun answerPrivacy(outcome: PrivacyPromptOutcome) {
         privacyPrompt.answer(outcome)
     }
@@ -160,6 +135,12 @@ class DemoEnvironment(context: Context) {
 
     fun closePrivacy() = answerPrivacy(PrivacyPromptOutcome.Dismissed)
 
+    /** Drops the local activation state, the sealed credentials and the in memory tokens. */
+    suspend fun resetLocal() {
+        coordinator.resetLocalStateForFactoryReset()
+        tokens.signOut()
+    }
+
     fun shutdown() {
         coordinator.close()
         scope.cancel()
@@ -167,19 +148,8 @@ class DemoEnvironment(context: Context) {
 
     companion object {
         private const val LOG_TAG = "IVI-ACC"
-        private const val DEMO_ACCOUNT = "account-demo"
+        private const val DEFAULT_LANGUAGE = "zh-CN"
     }
-}
-
-enum class DemoScenario {
-    AGREEMENT_UNAVAILABLE,
-    AGREEMENT_AVAILABLE,
-    BOUND,
-    WAITING,
-    UNKNOWN,
-    EXPIRED,
-    LOGIN_FAILURE,
-    SKIP_TIMEOUT,
 }
 
 /** Bridges the desktop prompt to an Activity dialog. */

@@ -3,7 +3,7 @@ package net.hwyz.iov.vehicle.ivi.acc.domain.gateway
 import net.hwyz.iov.vehicle.ivi.acc.domain.model.AccountRef
 import net.hwyz.iov.vehicle.ivi.acc.domain.model.AgreementBundle
 import net.hwyz.iov.vehicle.ivi.acc.domain.model.AgreementReference
-import net.hwyz.iov.vehicle.ivi.acc.domain.model.LoginMaterial
+import net.hwyz.iov.vehicle.ivi.acc.domain.model.LoginTicket
 import net.hwyz.iov.vehicle.ivi.acc.domain.model.PendingRecord
 import net.hwyz.iov.vehicle.ivi.acc.domain.model.SessionObservation
 import net.hwyz.iov.vehicle.ivi.acc.domain.model.SessionRef
@@ -35,7 +35,7 @@ interface ActivationCloudPort {
 
     suspend fun submitSkip(input: SkipRequestInput): SkipSubmitOutcome
 
-    suspend fun requestLoginMaterial(input: LoginMaterialRequestInput): LoginMaterialOutcome
+    suspend fun issueLoginTicket(input: LoginTicketRequestInput): LoginTicketOutcome
 
     suspend fun reportRecord(input: RecordReportInput): RecordReportOutcome
 }
@@ -78,16 +78,16 @@ sealed interface SkipSubmitOutcome {
     data class Failed(val category: ErrorCategory) : SkipSubmitOutcome
 }
 
-data class LoginMaterialRequestInput(
+data class LoginTicketRequestInput(
     val vehicle: VehicleRef,
     val session: SessionRef,
     val bindingOperationId: String?,
 )
 
-sealed interface LoginMaterialOutcome {
-    data class Material(val material: LoginMaterial) : LoginMaterialOutcome
+sealed interface LoginTicketOutcome {
+    data class Ticket(val ticket: LoginTicket) : LoginTicketOutcome
 
-    data class Failed(val category: ErrorCategory) : LoginMaterialOutcome
+    data class Failed(val category: ErrorCategory) : LoginTicketOutcome
 }
 
 data class RecordReportInput(val record: PendingRecord)
@@ -100,7 +100,7 @@ sealed interface RecordReportOutcome {
 
 /** Local secure login capability. The domain never generates user tokens itself. */
 interface AccountLoginGateway {
-    suspend fun login(material: LoginMaterial): LoginOutcome
+    suspend fun login(ticket: LoginTicket): LoginOutcome
 
     suspend fun signOutLocally()
 }

@@ -3,7 +3,6 @@ package net.hwyz.iov.vehicle.ivi.acc.data.local
 import androidx.test.core.app.ApplicationProvider
 import kotlinx.coroutines.runBlocking
 import net.hwyz.iov.vehicle.ivi.acc.data.local.security.InMemorySecretBox
-import net.hwyz.iov.vehicle.ivi.acc.domain.model.LoginMaterial
 import net.hwyz.iov.vehicle.ivi.acc.domain.state.GuideState
 import net.hwyz.iov.vehicle.ivi.acc.domain.state.LoginState
 import net.hwyz.iov.vehicle.ivi.acc.domain.store.FlowContext
@@ -45,8 +44,8 @@ class AndroidWiringRobolectricTest {
     @Test
     fun `secure material store works with shared preferences`() = runBlocking {
         val materialStore = ActivationLocalStores.secureMaterialStore(context, InMemorySecretBox())
-        materialStore.put(LoginMaterial("handle-robolectric", Long.MAX_VALUE), "secret")
-        assertEquals("secret", materialStore.get("handle-robolectric"))
+        materialStore.putSealed("handle-robolectric", "secret", Long.MAX_VALUE)
+        assertEquals("secret", materialStore.sealed("handle-robolectric"))
         materialStore.clearAll()
     }
 }

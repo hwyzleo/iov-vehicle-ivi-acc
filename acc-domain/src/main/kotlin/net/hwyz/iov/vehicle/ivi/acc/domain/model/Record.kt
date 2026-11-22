@@ -71,10 +71,23 @@ sealed interface RecordPayload {
         val sessionId: String,
         val bindingOperationId: String?,
         val loggedInAtEpochMillis: Long,
+        val loginStatus: String = "SUCCEEDED",
+        val agreements: List<AgreementReference> = emptyList(),
     ) : RecordPayload {
         override val canonical: String
-            get() = "type=LOGIN_RESULT;vin=$vin;account=$accountId;session=$sessionId" +
-                ";binding=${bindingOperationId ?: "-"};loggedInAt=$loggedInAtEpochMillis"
+            get() = buildString {
+                append("type=LOGIN_RESULT;vin=").append(vin)
+                append(";account=").append(accountId)
+                append(";session=").append(sessionId)
+                append(";binding=").append(bindingOperationId ?: "-")
+                append(";status=").append(loginStatus)
+                append(";loggedInAt=").append(loggedInAtEpochMillis)
+                agreements.sortedBy { it.type.name }.forEach { ref ->
+                    append(";doc=").append(ref.type.name)
+                    append(':').append(ref.version)
+                    append(':').append(ref.revisionId ?: "-")
+                }
+            }
     }
 
     data class SkipActivation(

@@ -1,13 +1,17 @@
 package net.hwyz.iov.vehicle.ivi.acc.data.cloud
 
-import net.hwyz.iov.vehicle.ivi.acc.data.cloud.codec.ActivationPayloadCodec
-import net.hwyz.iov.vehicle.ivi.acc.data.cloud.codec.PayloadContractPendingException
-import net.hwyz.iov.vehicle.ivi.acc.data.cloud.codec.UnconfiguredPayloadCodec
+import kotlinx.serialization.json.JsonObject
+import net.hwyz.iov.vehicle.ivi.acc.data.cloud.ciam.TokenProvider
+import net.hwyz.iov.vehicle.ivi.acc.data.cloud.codec.CloudPayloadCodec
+import net.hwyz.iov.vehicle.ivi.acc.data.cloud.codec.JsonCloudPayloadCodec
+import net.hwyz.iov.vehicle.ivi.acc.data.cloud.codec.cloudReport
 import net.hwyz.iov.vehicle.ivi.acc.data.cloud.transport.CloudOperation
+import net.hwyz.iov.vehicle.ivi.acc.data.cloud.transport.CloudRequest
+import net.hwyz.iov.vehicle.ivi.acc.data.cloud.transport.HttpMethod
 import net.hwyz.iov.vehicle.ivi.acc.data.cloud.transport.SgwTransport
 import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.ActivationCloudPort
-import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.LoginMaterialOutcome
-import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.LoginMaterialRequestInput
+import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.LoginTicketOutcome
+import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.LoginTicketRequestInput
 import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.RecordReportInput
 import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.RecordReportOutcome
 import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.SessionQueryInput
@@ -19,85 +23,136 @@ import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.SkipSubmitOutcome
 import net.hwyz.iov.vehicle.ivi.acc.domain.state.ErrorCategory
 
 /**
- * Cloud adapter over EDD-SGW (design D-003).
+ * Cloud adapter over EDD-SGW for the IOV-TSP vehicle side activation API (DSN-CR-002 D-003).
  *
- * Transport framing, path configuration and error classification are concrete; the payload schema
- * is delegated to [ActivationPayloadCodec] and stays unset until the contract is confirmed.
+ * Every call carries the IAM authorization token; business outcomes are read from the response
+ * envelope code, never from the HTTP status alone. Ticket issuance is the only place a login
+ * credential enters the car.
  */
 class SgwActivationCloudPort(
     private val transport: SgwTransport,
-    private val codec: ActivationPayloadCodec = UnconfiguredPayloadCodec(),
+    private val codec: CloudPayloadCodec = JsonCloudPayloadCodec(),
+    private val tokens: TokenProvider = TokenProvider.None,
+    private val nowEpochMillis: () -> Long = System::currentTimeMillis,
 ) : ActivationCloudPort {
 
     override suspend fun requestSession(input: SessionRequestInput): SessionRequestOutcome {
-        val body = encodeOrNull { codec.encodeSessionRequest(input) }
-            ?: return SessionRequestOutcome.Failed(ErrorCategory.CONTRACT_REJECTED)
-        val result = transport.execute(CloudOperation.REQUEST_SESSION, input.requestId, body)
-        SgwOutcomeClassifier.classify(result)?.let { return SessionRequestOutcome.Failed(it) }
-        val session = decodeOrNull { codec.decodeSessionCreated(result.body.orEmpty()) }
-            ?: return SessionRequestOutcome.Failed(ErrorCategory.RESULT_UNKNOWN)
-        return SessionRequestOutcome.Created(session)
+        val request = CloudRequest(
+            operation = CloudOperation.REQUEST_SESSION,
+            method = HttpMethod.POST,
+            idempotencyKey = input.requestId,
+            body = runCatching { codec.encodeSessionRequest(input) }.getOrNull()
+                ?: return SessionRequestOutcome.Failed(ErrorCategory.CONTRACT_REJECTED),
+            bearerToken = tokens.authorizationToken(),
+        )
+        return when (val call = call(request)) {
+            is CloudCall.Failed -> SessionRequestOutcome.Failed(call.category)
+            is CloudCall.Success -> codec.decodeSessionCreated(call.data, nowEpochMillis())
+                ?.let { SessionRequestOutcome.Created(it) }
+                ?: SessionRequestOutcome.Failed(ErrorCategory.CONTRACT_REJECTED)
+        }
     }
 
     override suspend fun querySession(input: SessionQueryInput): SessionQueryOutcome {
-        val body = encodeOrNull { codec.encodeSessionQuery(input) }
-            ?: return SessionQueryOutcome.Failed(ErrorCategory.CONTRACT_REJECTED)
-        val result = transport.execute(CloudOperation.QUERY_SESSION, null, body)
-        SgwOutcomeClassifier.classify(result)?.let { return SessionQueryOutcome.Failed(it) }
-        val observation = decodeOrNull { codec.decodeSessionObservation(result.body.orEmpty()) }
-            ?: return SessionQueryOutcome.Failed(ErrorCategory.RESULT_UNKNOWN)
-        return SessionQueryOutcome.Observed(observation)
+        val request = CloudRequest(
+            operation = CloudOperation.QUERY_SESSION,
+            method = HttpMethod.GET,
+            pathParams = mapOf("sessionId" to input.session.sessionId),
+            bearerToken = tokens.authorizationToken(),
+        )
+        return when (val call = call(request)) {
+            is CloudCall.Failed -> SessionQueryOutcome.Failed(call.category)
+            is CloudCall.Success -> codec.decodeSessionObservation(call.data)
+                ?.let { SessionQueryOutcome.Observed(it) }
+                ?: SessionQueryOutcome.Failed(ErrorCategory.CONTRACT_REJECTED)
+        }
     }
 
     override suspend fun submitSkip(input: SkipRequestInput): SkipSubmitOutcome {
-        val body = encodeOrNull { codec.encodeSkip(input) }
-            ?: return SkipSubmitOutcome.Failed(ErrorCategory.CONTRACT_REJECTED)
-        val result = transport.execute(CloudOperation.SUBMIT_SKIP, input.requestId, body)
-        SgwOutcomeClassifier.classify(result)?.let { return SkipSubmitOutcome.Failed(it) }
-        val acknowledged = decodeOrNull { codec.decodeSkipAcknowledged(result.body.orEmpty()) }
-            ?: return SkipSubmitOutcome.Failed(ErrorCategory.RESULT_UNKNOWN)
-        return if (acknowledged) {
-            SkipSubmitOutcome.Acknowledged
-        } else {
-            SkipSubmitOutcome.Failed(ErrorCategory.RESULT_UNKNOWN)
+        val request = CloudRequest(
+            operation = CloudOperation.SUBMIT_SKIP,
+            method = HttpMethod.POST,
+            idempotencyKey = input.requestId,
+            body = runCatching { codec.encodeSkip(input) }.getOrNull()
+                ?: return SkipSubmitOutcome.Failed(ErrorCategory.CONTRACT_REJECTED),
+            bearerToken = tokens.authorizationToken(),
+        )
+        return when (val call = call(request)) {
+            is CloudCall.Failed -> SkipSubmitOutcome.Failed(call.category)
+            is CloudCall.Success ->
+                if (codec.decodeAcknowledged(call.data)) {
+                    SkipSubmitOutcome.Acknowledged
+                } else {
+                    SkipSubmitOutcome.Failed(ErrorCategory.CONTRACT_REJECTED)
+                }
         }
     }
 
-    override suspend fun requestLoginMaterial(
-        input: LoginMaterialRequestInput,
-    ): LoginMaterialOutcome {
-        val body = encodeOrNull { codec.encodeLoginMaterialRequest(input) }
-            ?: return LoginMaterialOutcome.Failed(ErrorCategory.CONTRACT_REJECTED)
-        val result = transport.execute(CloudOperation.REQUEST_LOGIN_MATERIAL, null, body)
-        SgwOutcomeClassifier.classify(result)?.let { return LoginMaterialOutcome.Failed(it) }
-        val material = decodeOrNull { codec.decodeLoginMaterial(result.body.orEmpty()) }
-            ?: return LoginMaterialOutcome.Failed(ErrorCategory.RESULT_UNKNOWN)
-        return LoginMaterialOutcome.Material(material)
+    override suspend fun issueLoginTicket(input: LoginTicketRequestInput): LoginTicketOutcome {
+        val request = CloudRequest(
+            operation = CloudOperation.ISSUE_LOGIN_TICKET,
+            method = HttpMethod.POST,
+            pathParams = mapOf("sessionId" to input.session.sessionId),
+            bearerToken = tokens.authorizationToken(),
+        )
+        return when (val call = call(request)) {
+            is CloudCall.Failed -> LoginTicketOutcome.Failed(call.category)
+            is CloudCall.Success -> codec.decodeLoginTicket(call.data)
+                ?.let { LoginTicketOutcome.Ticket(it) }
+                ?: LoginTicketOutcome.Failed(ErrorCategory.CONTRACT_REJECTED)
+        }
     }
 
     override suspend fun reportRecord(input: RecordReportInput): RecordReportOutcome {
-        val body = encodeOrNull { codec.encodeRecord(input.record) }
-            ?: return RecordReportOutcome.Failed(ErrorCategory.CONTRACT_REJECTED)
-        val result = transport.execute(CloudOperation.REPORT_RECORD, input.record.id, body)
-        SgwOutcomeClassifier.classify(result)?.let { return RecordReportOutcome.Failed(it) }
-        val acknowledged = decodeOrNull { codec.decodeRecordAcknowledged(result.body.orEmpty()) }
-            ?: return RecordReportOutcome.Failed(ErrorCategory.RESULT_UNKNOWN)
-        return if (acknowledged) {
-            RecordReportOutcome.Acknowledged
-        } else {
-            RecordReportOutcome.Failed(ErrorCategory.CONTRACT_REJECTED)
+        val record = input.record
+        val report = record.type.cloudReport()
+            // Agreement consent evidence travels inside the login result / skip submit.
+            ?: return RecordReportOutcome.Acknowledged
+        val operation = when (report) {
+            net.hwyz.iov.vehicle.ivi.acc.data.cloud.codec.CloudReport.LOGIN_RESULT ->
+                CloudOperation.REPORT_LOGIN_RESULT
+
+            net.hwyz.iov.vehicle.ivi.acc.data.cloud.codec.CloudReport.PRIVACY_AUTHORIZATION ->
+                CloudOperation.REPORT_PRIVACY_AUTHORIZATION
+        }
+        val body = when (report) {
+            net.hwyz.iov.vehicle.ivi.acc.data.cloud.codec.CloudReport.LOGIN_RESULT ->
+                codec.encodeLoginResult(record)
+
+            net.hwyz.iov.vehicle.ivi.acc.data.cloud.codec.CloudReport.PRIVACY_AUTHORIZATION ->
+                codec.encodePrivacyReport(record)
+        } ?: return RecordReportOutcome.Failed(ErrorCategory.CONTRACT_REJECTED)
+        val request = CloudRequest(
+            operation = operation,
+            method = HttpMethod.POST,
+            idempotencyKey = record.id,
+            body = body,
+            bearerToken = tokens.authorizationToken(),
+        )
+        return when (val call = call(request)) {
+            is CloudCall.Failed -> RecordReportOutcome.Failed(call.category)
+            is CloudCall.Success ->
+                if (codec.decodeAcknowledged(call.data)) {
+                    RecordReportOutcome.Acknowledged
+                } else {
+                    RecordReportOutcome.Failed(ErrorCategory.CONTRACT_REJECTED)
+                }
         }
     }
 
-    private inline fun <T> encodeOrNull(block: () -> T): T? = try {
-        block()
-    } catch (pending: PayloadContractPendingException) {
-        null
+    private suspend fun call(request: CloudRequest): CloudCall {
+        val result = transport.execute(request)
+        SgwOutcomeClassifier.classifyTransport(result)?.let { return CloudCall.Failed(it) }
+        val envelope = SgwOutcomeClassifier.parse(result.body)
+            ?: return CloudCall.Failed(ErrorCategory.CONTRACT_REJECTED)
+        SgwOutcomeClassifier.categoryOf(envelope.code)?.let { return CloudCall.Failed(it) }
+        val data = envelope.objectData ?: return CloudCall.Failed(ErrorCategory.CONTRACT_REJECTED)
+        return CloudCall.Success(data)
     }
 
-    private inline fun <T> decodeOrNull(block: () -> T): T? = try {
-        block()
-    } catch (pending: PayloadContractPendingException) {
-        null
+    private sealed interface CloudCall {
+        data class Success(val data: JsonObject) : CloudCall
+
+        data class Failed(val category: ErrorCategory) : CloudCall
     }
 }

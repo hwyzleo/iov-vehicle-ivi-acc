@@ -2,8 +2,6 @@ package net.hwyz.iov.vehicle.ivi.acc.demo
 
 import android.os.Bundle
 import android.view.View
-import android.widget.AdapterView
-import android.widget.ArrayAdapter
 import androidx.activity.viewModels
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -32,7 +30,6 @@ class ActivationActivity : AppCompatActivity() {
     private lateinit var binding: ActivityActivationBinding
     private val viewModel: ActivationViewModel by viewModels()
     private var privacyDialog: AlertDialog? = null
-    private var scenarioInitialised = false
     private var documentDialog: AlertDialog? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -58,30 +55,8 @@ class ActivationActivity : AppCompatActivity() {
         binding.btnReset.setOnClickListener { viewModel.resetLocalState() }
         binding.cbRearSeat.setOnCheckedChangeListener { _, checked -> viewModel.setRearSeat(checked) }
 
-        binding.spinnerScenario.adapter = ArrayAdapter(
-            this,
-            android.R.layout.simple_spinner_dropdown_item,
-            resources.getStringArray(R.array.demo_scenarios),
-        )
-        binding.spinnerScenario.onItemSelectedListener =
-            object : AdapterView.OnItemSelectedListener {
-                override fun onItemSelected(
-                    parent: AdapterView<*>?,
-                    view: View?,
-                    position: Int,
-                    id: Long,
-                ) {
-                    // The initial selection only reflects the default demo state; it must not
-                    // trigger a second agreement load right after start().
-                    if (!scenarioInitialised) {
-                        scenarioInitialised = true
-                        return
-                    }
-                    viewModel.applyScenario(DemoScenario.entries[position])
-                }
-
-                override fun onNothingSelected(parent: AdapterView<*>?) = Unit
-            }
+        // The debug scenario list is gone: the demo talks to the real gateway only.
+        binding.spinnerScenario.visibility = View.GONE
 
         viewModel.privacyPrompt.onShow = { runOnUiThread { showPrivacyPrompt() } }
 

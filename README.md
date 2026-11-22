@@ -71,34 +71,62 @@ Test layers:
 ~/Library/Android/sdk/platform-tools/adb logcat -s IVI-ACC:D
 ```
 
-Use the debug panel:
+The demo talks to the real gateway only (no scripted fake):
 
-- `云端场景`:
-  - `协议未维护（获取失败）` (default): startup shows a loading hint, then an explicit fetch error
-    with a retry action and no consent control — matching the current cloud reality.
-  - `协议可获取`: both documents load with version/revision, `查看` opens the body, and consent is
-    gated before the QR can appear.
-  - `绑定成功` / `扫码等待` / `结果未知` / `会话过期` / `登录失败` / `跳过超时`: cloud scenarios.
+| BuildConfig | Default | Meaning |
+|---|---|---|
+| `SGW_BASE_URL` | `https://sgw.openiov.top` | EDD-SGW base URL for both IOV-TSP activation routes and SEC-CIAM token routes |
+| `CIAM_CLIENT_ID` | `ivi-capp` | OAuth client registered for the vehicle |
+| `DEVICE_KEY_ALIAS` | `ivi-acc-device` | Android keystore alias holding the device key used for `KEY_SIGNATURE` proof |
+| `DEMO_VIN` | `LVINACC0000000001` | Local scoping VIN; the cloud authoritatively resolves the VIN from the CIAM device token (`X-Vin` is injected by SGW) |
+
+Prerequisites for a successful run:
+
+1. The device key alias must exist and the device must be registered in VIAM (`POST /api/ivi/auth/v1/token`
+   with `KEY_SIGNATURE`). Without it the app fails closed with a recoverable authentication error.
+2. `MKT-CMS` must have a published `IVI_ACTIVATION` bundle; otherwise the agreement step shows an
+   explicit failure with retry and no consent control (A-001).
+3. `SEC-CIAM` must have `ciam.binding-ticket.enabled=true` for the "bind and log in" step.
+
+Debug panel (remaining controls):
+
 - `后排屏`: switches the seat role so the privacy request returns "front seat required".
-- `清空本地状态`: clears local guide state only (no cloud unbind).
+- `清空本地状态`: clears local guide state and sealed credentials only (no cloud unbind).
 
-The demo uses scriptable fakes (`FakeActivationCloudPort`, `FakeAgreementGateway`,
-`FakeAccountLoginAdapter`) and an in-memory secret box. It renders a placeholder instead of a real
-QR image; phone side scanning is out of scope.
+The flow itself is real: agreements from TSP, QR session, binding poll, one time login ticket,
+CIAM ticket exchange (access 60 min + device bound refresh), silent renewal, receipts and privacy
+authorization. The QR area still renders a placeholder instead of an image; phone side scanning is
+out of scope.
+
+## Cloud contract implemented (DSN-CR-002 / DSN-CR-003)
+
+| Step | Method and path (relative to `SGW_BASE_URL`) | Notes |
+|---|---|---|
+| Agreements | `GET /api/vehicle/activation/v1/agreements?language=` | `language` = system Locale, fallback `zh-CN`; both documents required |
+| Session | `POST /api/vehicle/activation/v1/session` | Carries the two agreement acceptances; `Idempotency-Key` |
+| Result poll | `GET /api/vehicle/activation/v1/session/{sessionId}/result` | `BOUND` + `bindingOperationId` = trustworthy success |
+| Skip | `POST /api/vehicle/activation/v1/session/skip` | `reportId` idempotent, VIN level evidence |
+| Login ticket | `POST /api/vehicle/activation/v1/session/{sessionId}/login-ticket` | One time, 180 s, never persisted or logged |
+| Login exchange | `POST /api/ivi/auth/v1/token` (`binding-ticket`) | Bearer device token + ticket -> access + refresh |
+| Renewal | `POST /api/open/oauth/v1/token` (`refresh_token`) | Requires the same device token (device binding) |
+| Login receipt | `POST /api/vehicle/activation/v1/session/ivi-login-result` | Carries the agreement evidence of the session snapshot |
+| Privacy receipt | `POST /api/vehicle/activation/v1/privacy-authorization` | Items with a monotonic local version |
+
+Business failures arrive as HTTP 200 with a non `000000` code; the adapter reads `code` and maps it
+to the five local categories (`401101-401103` -> expired, `401108` -> retryable, others rejected).
 
 ## Not verified in this baseline
 
-- Cloud payload schema: `UnconfiguredPayloadCodec` refuses every call until the SGW/TSP contract is
-  confirmed, so no URL, field name, status code or numeric error code was invented. `SgwTransport`
-  routes are configuration.
+- Real gateway smoke run: the contract is implemented and covered by MockWebServer tests, but a
+  vehicle with a provisioned device certificate has not run against `https://sgw.openiov.top` yet.
 - `AndroidKeystoreSecretBox` requires a real Android keystore provider: host unit tests cover the
   store logic with an in-memory box only; keystore behaviour must be verified on device.
 - No VSO, CMS, VMD or TSP implementation: the car side never writes those systems.
 - Emulator smoke run is executed (`Pixel_3a_API_33_arm64-v8a`: install, launch, initial screen
   rendered, no crash, sanitized `state.transition` logs). A full interactive walkthrough of every
   button, real QR scanning and real account login are not executed.
-- Pending confirmation: trusted vehicle identity, result channel, skip/offline policy, privacy item
-  list, record idempotency/retention and the post factory-reset recovery strategy.
+- Pending confirmation: offline skip policy, privacy item list, record retention and the post
+  factory-reset recovery strategy.
 
 ## Troubleshooting
 

@@ -35,15 +35,16 @@ sealed interface SessionObservation {
 }
 
 /**
- * Opaque short lived material used to complete the local account login.
+ * One-time login ticket issued by the cloud once a binding is confirmed.
  *
- * The value is held by the platform secure store; only a [handle] travels through the domain.
+ * The value is a single-use secret: it is never persisted and never logged, and it is consumed
+ * exactly once when exchanged for an IAM user token (DSN-CR-002 D-005).
  */
-data class LoginMaterial(
-    val handle: String,
+data class LoginTicket(
+    val ticket: String,
     val expiresAtEpochMillis: Long,
 ) {
     fun isExpired(nowEpochMillis: Long): Boolean = nowEpochMillis >= expiresAtEpochMillis
 
-    override fun toString(): String = "LoginMaterial(handle=${mask(handle)})"
+    override fun toString(): String = "LoginTicket(expiresAt=$expiresAtEpochMillis)"
 }

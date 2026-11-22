@@ -13,6 +13,12 @@ android {
         targetSdk = 34
         versionCode = 1
         versionName = "0.1.0"
+
+        // Real gateway wiring (DSN-CR-002): the car talks to EDD-SGW only, no scripted fake.
+        buildConfigField("String", "SGW_BASE_URL", "\"https://sgw.openiov.top\"")
+        buildConfigField("String", "CIAM_CLIENT_ID", "\"ivi-capp\"")
+        buildConfigField("String", "DEVICE_KEY_ALIAS", "\"ivi-acc-device\"")
+        buildConfigField("String", "DEMO_VIN", "\"LVINACC0000000001\"")
     }
 
     compileOptions {

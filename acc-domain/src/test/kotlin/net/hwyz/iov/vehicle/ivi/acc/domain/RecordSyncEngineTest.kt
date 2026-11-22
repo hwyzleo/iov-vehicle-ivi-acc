@@ -62,9 +62,25 @@ class RecordSyncEngineTest {
         userActionAtEpochMillis = clock.nowEpochMillis(),
     )
 
+    private fun loginRecord(id: String = "login-1"): PendingRecord = PendingRecord.create(
+        id = id,
+        type = RecordType.LOGIN_RESULT,
+        scopeKey = "VIN:VIN1",
+        payload = RecordPayload.LoginResult(
+            vin = "VIN1",
+            accountId = "account-1",
+            sessionId = "SES-1",
+            bindingOperationId = "OP-1",
+            loggedInAtEpochMillis = clock.nowEpochMillis(),
+        ),
+        createdAtEpochMillis = clock.nowEpochMillis(),
+        userActionAtEpochMillis = clock.nowEpochMillis(),
+    )
+
     @Test
     fun `a retryable failure is retried and then acknowledged`() = runTest {
-        recordStore.enqueue(agreementRecord())
+        recordStore.enqueue(loginRecord("login-1"))
+        recordStore.enqueue(agreementRecord("agr-1"))
         agreementStore.saveAll(
             listOf(
                 AgreementAcceptance(
@@ -82,13 +98,15 @@ class RecordSyncEngineTest {
         )
         cloud.recordOutcome = RecordReportOutcome.Failed(ErrorCategory.RETRYABLE)
         assertEquals(0, engine(maxAttempts = 2).flush(10))
-        assertEquals(SyncState.PENDING, recordStore.records.getValue("agr-1").syncState)
-        assertEquals(2, recordStore.records.getValue("agr-1").attempts)
+        assertEquals(SyncState.PENDING, recordStore.records.getValue("login-1").syncState)
+        assertEquals(2, recordStore.records.getValue("login-1").attempts)
 
         // Once the backoff window elapsed and the transport recovered, the same record is uploaded.
         clock.wallEpochMillis += 10_000L
         cloud.recordOutcome = RecordReportOutcome.Acknowledged
         assertEquals(1, engine().flush(10))
+        assertEquals(SyncState.ACKNOWLEDGED, recordStore.records.getValue("login-1").syncState)
+        // Agreement consent evidence rides along with the acknowledged login result.
         assertEquals(SyncState.ACKNOWLEDGED, recordStore.records.getValue("agr-1").syncState)
         assertEquals(
             AgreementSyncState.ACKNOWLEDGED,
@@ -98,10 +116,10 @@ class RecordSyncEngineTest {
 
     @Test
     fun `terminal rejection stops retrying`() = runTest {
-        recordStore.enqueue(agreementRecord("agr-2"))
+        recordStore.enqueue(loginRecord("login-2"))
         cloud.recordOutcome = RecordReportOutcome.Failed(ErrorCategory.AUTH_REJECTED)
         assertEquals(0, engine().flush(10))
-        val record = recordStore.records.getValue("agr-2")
+        val record = recordStore.records.getValue("login-2")
         assertEquals(SyncState.FAILED_TERMINAL, record.syncState)
         assertEquals(1, record.attempts)
     }

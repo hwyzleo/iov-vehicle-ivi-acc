@@ -2,7 +2,6 @@ package net.hwyz.iov.vehicle.ivi.acc.data.local
 
 import android.content.SharedPreferences
 import net.hwyz.iov.vehicle.ivi.acc.data.local.security.SecretBox
-import net.hwyz.iov.vehicle.ivi.acc.domain.model.LoginMaterial
 import net.hwyz.iov.vehicle.ivi.acc.domain.store.SecureMaterialStore
 
 /** Minimal key value abstraction so the secure material store is testable on the host. */
@@ -52,43 +51,43 @@ class InMemoryKeyValueStore : KeyValueStore {
     }
 }
 
-/** Encrypted short lived login material; the plain value never reaches the disk. */
+/** Encrypted credentials (for example the device bound refresh token); plaintext never reaches the disk. */
 class SecureMaterialStoreImpl(
     private val store: KeyValueStore,
     private val box: SecretBox,
     private val nowEpochMillis: () -> Long,
 ) : SecureMaterialStore {
 
-    override suspend fun put(material: LoginMaterial, secret: String) {
+    override suspend fun putSealed(key: String, secret: String, expiresAtEpochMillis: Long) {
         store.put(
-            key(material.handle),
-            "${material.expiresAtEpochMillis}:${box.encrypt(secret)}",
+            storageKey(key),
+            "$expiresAtEpochMillis:${box.encrypt(secret)}",
         )
     }
 
-    override suspend fun get(handle: String): String? {
-        val raw = store.get(key(handle)) ?: return null
+    override suspend fun sealed(key: String): String? {
+        val raw = store.get(storageKey(key)) ?: return null
         val separator = raw.indexOf(':')
         if (separator <= 0) {
-            clear(handle)
+            clear(key)
             return null
         }
         val expiresAt = raw.substring(0, separator).toLongOrNull() ?: return null
         if (expiresAt <= nowEpochMillis()) {
-            // Expired material is never reused.
-            clear(handle)
+            // Expired credentials are never reused.
+            clear(key)
             return null
         }
         return runCatching { box.decrypt(raw.substring(separator + 1)) }.getOrNull()
     }
 
-    override suspend fun clear(handle: String) {
-        store.remove(key(handle))
+    override suspend fun clear(key: String) {
+        store.remove(storageKey(key))
     }
 
     override suspend fun clearAll() {
         store.clear()
     }
 
-    private fun key(handle: String): String = "material.$handle"
+    private fun storageKey(key: String): String = "material.$key"
 }
