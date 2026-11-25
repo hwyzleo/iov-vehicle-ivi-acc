@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 二维码底盘：扫码需要浅底，为安全例外；外圈荧光青标示可扫描区域 -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="@color/ivi_accent_container" />
+            <corners android:radius="@dimen/ivi_radius_plate" />
+        </shape>
+    </item>
+    <item
+        android:bottom="6dp"
+        android:left="6dp"
+        android:right="6dp"
+        android:top="6dp">
+        <shape android:shape="rectangle">
+            <solid android:color="@color/ivi_qr_plate" />
+            <corners android:radius="@dimen/ivi_radius_card" />
+            <stroke
+                android:width="2dp"
+                android:color="@color/ivi_qr_plate_stroke" />
+        </shape>
+    </item>
+</layer-list>

@@ -15,6 +15,9 @@
 - 参考 Notion Page ID: 41e0ec7a4b9280b087f3c45075e477de
 - 变更记录 Notion Page ID: 41e0ec7a4b9280adb01ae04ced74e269
 
+# 当前项目配色与组件设计规范
+- 参考 Notion Page ID: 4230ec7a4b92806a8949f26a29fc7681
+
 # graphify
 
 This project has a graphify knowledge graph at graphify-out/.

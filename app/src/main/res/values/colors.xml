@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  车机端配色令牌（IVI Design Token System v1.0）。
+  夜间/隧道模式为默认基线（深邃消光黑 #080A0F + 微光容器 #141923）；
+  日间抗眩模式见 values-notnight/colors.xml，由 UI mode 自动切换。
+  语义色严格专色专用：品牌荧光青=交互，纯电绿=能量/成功，燃油蓝=信息，预警橙/故障红=安全状态。
+-->
+<resources>
+    <!-- 表面与描边 -->
+    <color name="ivi_bg">#080A0F</color>
+    <color name="ivi_surface">#141923</color>
+    <color name="ivi_surface_raised">#1A2231</color>
+    <color name="ivi_stroke">#233047</color>
+    <color name="ivi_stroke_strong">#33405A</color>
+    <color name="ivi_scrim">#B3000000</color>
+
+    <!-- 文本 -->
+    <color name="ivi_text_primary">#EAF1FA</color>
+    <color name="ivi_text_secondary">#9FB0C6</color>
+    <color name="ivi_text_muted">#93A1B5</color>
+
+    <!-- 品牌荧光青：交互主色（填充/描边/选中态） -->
+    <color name="ivi_accent">#00F0FF</color>
+    <color name="ivi_accent_text">#00F0FF</color>
+    <color name="ivi_accent_container">#062A31</color>
+    <color name="ivi_on_accent">#001014</color>
+
+    <!-- 功能语义色 -->
+    <color name="ivi_success">#10E599</color>
+    <color name="ivi_info">#38BDF8</color>
+
+    <!-- 预警橙 -->
+    <color name="ivi_warning">#F59E0B</color>
+    <color name="ivi_warning_container">#2A1E05</color>
+    <color name="ivi_warning_text">#FFC24B</color>
+
+    <!-- 故障红 -->
+    <color name="ivi_danger">#EF4444</color>
+    <color name="ivi_danger_container">#2A1113</color>
+    <color name="ivi_danger_text">#FF8A8A</color>
+
+    <!-- 二维码底盘（扫码需要浅底，属安全例外） -->
+    <color name="ivi_qr_plate">#FFFFFF</color>
+    <color name="ivi_qr_plate_stroke">#00F0FF</color>
+    <color name="ivi_qr_plate_text">#1B2432</color>
+    <!-- 触摸反馈 -->
+    <color name="ivi_ripple">#3300F0FF</color>
+    <color name="ivi_accent_disabled">#1B3A42</color>
+    <color name="ivi_on_accent_disabled">#7C98A0</color>
+</resources>

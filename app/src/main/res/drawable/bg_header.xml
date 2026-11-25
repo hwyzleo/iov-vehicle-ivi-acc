@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 顶部品牌栏：消光黑渐变 + 底部荧光青分隔线（消除屏幕物理边框） -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="rectangle">
+            <gradient
+                android:angle="0"
+                android:endColor="@color/ivi_bg"
+                android:startColor="@color/ivi_surface" />
+        </shape>
+    </item>
+    <item android:gravity="bottom">
+        <shape android:shape="rectangle">
+            <size android:height="2dp" />
+            <solid android:color="@color/ivi_accent" />
+        </shape>
+    </item>
+</layer-list>

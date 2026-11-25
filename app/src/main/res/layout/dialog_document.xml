@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  协议全文弹窗：WebView 渲染云端下发的 HTML。
+  外层沿用 IVI 深色容器与 24dp 圆角，正文保持浅底纸张（云端口径的 HTML 自带排版），
+  避免夜间模式下正文反色导致的可读性下降。
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/bg_card"
+    android:orientation="vertical"
+    android:padding="@dimen/ivi_space_m">
+
+    <WebView
+        android:id="@+id/webDocument"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1" />
+</LinearLayout>

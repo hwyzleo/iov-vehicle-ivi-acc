@@ -1,0 +1,683 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  客户可见的激活页（横屏车机 · IVI Design Token System v1.0）。
+  - 配色：夜间深色为基线（#080A0F / #141923），日间抗眩模式由 UI mode 自动切换；
+    荧光青 #00F0FF 只用于交互，预警橙 / 故障红只用于安全状态。
+  - 触控：主操作 88dp 靶区，相邻控件间距 ≥20dp。
+  - 字阶：全屏不使用 <16sp 文字；读数用等宽粗体。
+  - 结构：左侧协议阅读与确认，右侧二维码舞台；调试信息收进可折叠面板。
+-->
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/ivi_bg">
+
+    <!-- 顶部品牌栏 -->
+    <LinearLayout
+        android:id="@+id/header"
+        android:layout_width="0dp"
+        android:layout_height="@dimen/ivi_header_height"
+        android:background="@drawable/bg_header"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="@dimen/ivi_space_xxl"
+        android:paddingEnd="@dimen/ivi_space_l"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/activation_title"
+            android:textColor="@color/ivi_text_primary"
+            android:textSize="@dimen/ivi_text_title"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="@dimen/ivi_space_m"
+            android:text="@string/activation_subtitle"
+            android:textColor="@color/ivi_text_secondary"
+            android:textSize="@dimen/ivi_text_body" />
+
+        <Space
+            android:layout_width="0dp"
+            android:layout_height="1dp"
+            android:layout_weight="1" />
+
+        <androidx.appcompat.widget.AppCompatButton
+            android:id="@+id/btnDebugToggle"
+            style="@style/Widget.Ivi.Button.Ghost"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/debug_toggle" />
+    </LinearLayout>
+
+    <!-- 主体：左侧协议 + 右侧二维码 -->
+    <LinearLayout
+        android:id="@+id/groupContent"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:orientation="horizontal"
+        android:padding="@dimen/ivi_page_padding"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/header">
+
+        <!-- 协议卡片：内容可滚动，主操作固定在卡片底部（避免 CTA 被折叠到屏幕外） -->
+        <LinearLayout
+            android:id="@+id/groupAgreements"
+            style="@style/Widget.Ivi.Card"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="36"
+            android:orientation="vertical">
+
+            <ScrollView
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:fillViewport="true">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/section_agreements"
+                        android:textAppearance="@style/TextAppearance.Ivi.Section" />
+
+                    <androidx.appcompat.widget.AppCompatButton
+                        android:id="@+id/btnReloadAgreements"
+                        style="@style/Widget.Ivi.Button.Link"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/reload_agreements" />
+                </LinearLayout>
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/ivi_space_xs"
+                    android:text="@string/agreements_gate_hint"
+                    android:textAppearance="@style/TextAppearance.Ivi.Caption" />
+
+                <TextView
+                    android:id="@+id/tvAgreementNote"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/ivi_space_xs"
+                    android:text="@string/agreements_consent_note"
+                    android:textAppearance="@style/TextAppearance.Ivi.Muted" />
+
+                <!-- 设备身份不可重试时的确定性提示（D-010） -->
+                <TextView
+                    android:id="@+id/tvDeviceStatus"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/ivi_space_m"
+                    android:background="@drawable/bg_notice_danger"
+                    android:padding="@dimen/ivi_space_m"
+                    android:textColor="@color/ivi_danger_text"
+                    android:textSize="@dimen/ivi_text_body"
+                    android:visibility="gone" />
+
+                <TextView
+                    android:id="@+id/tvAgreementLoading"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/ivi_space_l"
+                    android:text="@string/agreement_loading"
+                    android:textAppearance="@style/TextAppearance.Ivi.Caption"
+                    android:visibility="gone" />
+
+                <LinearLayout
+                    android:id="@+id/groupAgreementFailure"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/ivi_space_m"
+                    android:background="@drawable/bg_notice_warning"
+                    android:orientation="vertical"
+                    android:padding="@dimen/ivi_space_m"
+                    android:visibility="gone">
+
+                    <TextView
+                        android:id="@+id/tvAgreementError"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/agreement_unavailable_hint"
+                        android:textColor="@color/ivi_warning_text"
+                        android:textSize="@dimen/ivi_text_body" />
+
+                    <androidx.appcompat.widget.AppCompatButton
+                        android:id="@+id/btnRetryAgreements"
+                        style="@style/Widget.Ivi.Button.Ghost"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/ivi_space_xs"
+                        android:text="@string/retry" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/groupAgreementRows"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/ivi_space_l"
+                    android:orientation="vertical"
+                    android:visibility="gone">
+
+                    <CheckBox
+                        android:id="@+id/cbPrivacy"
+                        style="@style/Widget.Ivi.CheckBox"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/agreement_accept_privacy" />
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <TextView
+                            android:id="@+id/tvPrivacyAgreement"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:textAppearance="@style/TextAppearance.Ivi.Muted" />
+
+                        <androidx.appcompat.widget.AppCompatButton
+                            android:id="@+id/btnViewPrivacy"
+                            style="@style/Widget.Ivi.Button.Link"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/view_document_full" />
+                    </LinearLayout>
+
+                    <CheckBox
+                        android:id="@+id/cbUserAgreement"
+                        style="@style/Widget.Ivi.CheckBox"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/ivi_space_m"
+                        android:text="@string/agreement_accept_user" />
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <TextView
+                            android:id="@+id/tvUserAgreement"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:textAppearance="@style/TextAppearance.Ivi.Muted" />
+
+                        <androidx.appcompat.widget.AppCompatButton
+                            android:id="@+id/btnViewUserAgreement"
+                            style="@style/Widget.Ivi.Button.Link"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/view_document_full" />
+                    </LinearLayout>
+
+                </LinearLayout>
+                </LinearLayout>
+            </ScrollView>
+
+            <!-- 勾选仅为预选，点击此按钮才提交同意并申请会话（DSN-CR-006） -->
+            <androidx.appcompat.widget.AppCompatButton
+                android:id="@+id/btnConfirmAgreements"
+                style="@style/Widget.Ivi.Button.Primary"
+                android:layout_width="match_parent"
+                android:layout_height="@dimen/ivi_touch_primary"
+                android:layout_marginTop="@dimen/ivi_space_m"
+                android:text="@string/begin_activation" />
+        </LinearLayout>
+
+        <!-- 二维码卡片 -->
+        <FrameLayout
+            android:id="@+id/qrStageCard"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_marginStart="@dimen/ivi_page_padding"
+            android:layout_weight="64"
+            android:background="@drawable/bg_card"
+            android:padding="@dimen/ivi_space_l">
+
+            <!-- 扫码阶段 -->
+            <LinearLayout
+                android:id="@+id/groupQr"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center"
+                    android:text="@string/section_qr"
+                    android:textAppearance="@style/TextAppearance.Ivi.Section" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/ivi_space_xs"
+                    android:gravity="center"
+                    android:text="@string/qr_stage_subtitle"
+                    android:textAppearance="@style/TextAppearance.Ivi.Caption" />
+
+                <TextView
+                    android:id="@+id/tvSeatBlocked"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/ivi_space_s"
+                    android:background="@drawable/bg_notice_warning"
+                    android:gravity="center"
+                    android:padding="@dimen/ivi_space_s"
+                    android:text="@string/activation_front_seat_required"
+                    android:textColor="@color/ivi_warning_text"
+                    android:textSize="@dimen/ivi_text_body"
+                    android:textStyle="bold"
+                    android:visibility="gone" />
+
+                <androidx.constraintlayout.widget.ConstraintLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="0dp"
+                    android:layout_marginTop="@dimen/ivi_space_m"
+                    android:layout_weight="1"
+                    android:minHeight="140dp">
+
+                    <FrameLayout
+                        android:id="@+id/qrBox"
+                        android:layout_width="0dp"
+                        android:layout_height="0dp"
+                        android:background="@drawable/bg_qr_frame"
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:padding="@dimen/ivi_space_m"
+                        app:layout_constraintBottom_toBottomOf="parent"
+                        app:layout_constraintDimensionRatio="1:1"
+                        app:layout_constraintEnd_toEndOf="parent"
+                        app:layout_constraintStart_toStartOf="parent"
+                        app:layout_constraintTop_toTopOf="parent">
+
+                        <ImageView
+                            android:id="@+id/ivQrCode"
+                            android:layout_width="match_parent"
+                            android:layout_height="match_parent"
+                            android:contentDescription="@string/qr_content_description"
+                            android:scaleType="fitCenter" />
+
+                        <TextView
+                            android:id="@+id/tvQrPlaceholder"
+                            android:layout_width="match_parent"
+                            android:layout_height="match_parent"
+                            android:gravity="center"
+                            android:padding="@dimen/ivi_space_m"
+                            android:text="@string/qr_wait_agreements"
+                            android:textAppearance="@style/TextAppearance.Ivi.PlateText" />
+                    </FrameLayout>
+                </androidx.constraintlayout.widget.ConstraintLayout>
+
+                <TextView
+                    android:id="@+id/tvQrCountdown"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/ivi_space_m"
+                    android:gravity="center"
+                    android:text="@string/qr_countdown_placeholder"
+                    android:textAppearance="@style/TextAppearance.Ivi.Metric" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/ivi_space_xs"
+                    android:gravity="center"
+                    android:text="@string/qr_hint"
+                    android:textAppearance="@style/TextAppearance.Ivi.Muted" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/ivi_space_l"
+                    android:gravity="center"
+                    android:orientation="horizontal">
+
+                    <androidx.appcompat.widget.AppCompatButton
+                        android:id="@+id/btnRefreshSession"
+                        style="@style/Widget.Ivi.Button.Primary"
+                        android:layout_width="wrap_content"
+                        android:layout_height="@dimen/ivi_touch_primary"
+                        android:text="@string/refresh_session" />
+
+                    <androidx.appcompat.widget.AppCompatButton
+                        android:id="@+id/btnQueryNow"
+                        style="@style/Widget.Ivi.Button.Secondary"
+                        android:layout_width="wrap_content"
+                        android:layout_height="@dimen/ivi_touch_primary"
+                        android:layout_marginStart="@dimen/ivi_space_l"
+                        android:text="@string/query_now" />
+                </LinearLayout>
+
+                <!-- 面向用户的提示，技术细节在调试面板 -->
+                <LinearLayout
+                    android:id="@+id/groupError"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/ivi_space_l"
+                    android:background="@drawable/bg_notice_warning"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:paddingStart="@dimen/ivi_space_m"
+                    android:paddingTop="@dimen/ivi_space_xs"
+                    android:paddingEnd="@dimen/ivi_space_xs"
+                    android:paddingBottom="@dimen/ivi_space_xs"
+                    android:visibility="gone">
+
+                    <TextView
+                        android:id="@+id/tvError"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:textColor="@color/ivi_warning_text"
+                        android:textSize="@dimen/ivi_text_body" />
+
+                    <androidx.appcompat.widget.AppCompatButton
+                        android:id="@+id/btnRetry"
+                        style="@style/Widget.Ivi.Button.Ghost"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/retry" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <!-- 登录待完成 -->
+            <LinearLayout
+                android:id="@+id/groupLogin"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:gravity="center"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/section_login"
+                    android:textAppearance="@style/TextAppearance.Ivi.Section" />
+
+                <TextView
+                    android:id="@+id/tvLoginHint"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/ivi_space_m"
+                    android:gravity="center"
+                    android:text="@string/login_hint"
+                    android:textAppearance="@style/TextAppearance.Ivi.Label" />
+
+                <TextView
+                    android:id="@+id/tvLoginReason"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/ivi_space_s"
+                    android:gravity="center"
+                    android:textColor="@color/ivi_warning_text"
+                    android:textSize="@dimen/ivi_text_body"
+                    android:visibility="gone" />
+
+                <androidx.appcompat.widget.AppCompatButton
+                    android:id="@+id/btnRetryLogin"
+                    style="@style/Widget.Ivi.Button.Primary"
+                    android:layout_width="wrap_content"
+                    android:layout_height="@dimen/ivi_touch_primary"
+                    android:layout_marginTop="@dimen/ivi_space_xl"
+                    android:text="@string/retry_login" />
+
+                <TextView
+                    android:id="@+id/tvContinuation"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/ivi_space_xl"
+                    android:gravity="center"
+                    android:text="@string/continuation_hint"
+                    android:textAppearance="@style/TextAppearance.Ivi.Caption"
+                    android:visibility="gone" />
+
+                <androidx.appcompat.widget.AppCompatButton
+                    android:id="@+id/btnContinuation"
+                    style="@style/Widget.Ivi.Button.Primary"
+                    android:layout_width="wrap_content"
+                    android:layout_height="@dimen/ivi_touch_primary"
+                    android:layout_marginTop="@dimen/ivi_space_m"
+                    android:text="@string/continuation_accept"
+                    android:visibility="gone" />
+            </LinearLayout>
+
+            <!-- 首次隐私授权 -->
+            <LinearLayout
+                android:id="@+id/groupPrivacy"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:gravity="center"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/section_privacy"
+                    android:textAppearance="@style/TextAppearance.Ivi.Section" />
+
+                <TextView
+                    android:id="@+id/tvPrivacyItems"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/ivi_space_m"
+                    android:gravity="center"
+                    android:text="@string/privacy_hint"
+                    android:textAppearance="@style/TextAppearance.Ivi.Caption" />
+
+                <androidx.appcompat.widget.AppCompatButton
+                    android:id="@+id/btnRetryPrivacy"
+                    style="@style/Widget.Ivi.Button.Primary"
+                    android:layout_width="wrap_content"
+                    android:layout_height="@dimen/ivi_touch_primary"
+                    android:layout_marginTop="@dimen/ivi_space_xl"
+                    android:text="@string/retry" />
+            </LinearLayout>
+
+            <!-- 授权项目录不可用（不阻断进入） -->
+            <LinearLayout
+                android:id="@+id/groupPrivacyCatalog"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_gravity="bottom"
+                android:background="@drawable/bg_notice_warning"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:padding="@dimen/ivi_space_m"
+                android:visibility="gone">
+
+                <TextView
+                    android:id="@+id/tvPrivacyCatalogUnavailable"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="@string/privacy_catalog_unavailable"
+                    android:textColor="@color/ivi_warning_text"
+                    android:textSize="@dimen/ivi_text_body" />
+
+                <androidx.appcompat.widget.AppCompatButton
+                    android:id="@+id/btnRetryCatalog"
+                    style="@style/Widget.Ivi.Button.Ghost"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/retry_catalog" />
+            </LinearLayout>
+        </FrameLayout>
+    </LinearLayout>
+
+    <!-- 激活完成 -->
+    <LinearLayout
+        android:id="@+id/groupEntered"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:gravity="center"
+        android:orientation="vertical"
+        android:visibility="gone"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/header">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="✓"
+            android:textColor="@color/ivi_success"
+            android:textSize="@dimen/ivi_text_glyph"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/tvEntered"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/ivi_space_s"
+            android:textAppearance="@style/TextAppearance.Ivi.Display" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/ivi_space_s"
+            android:text="@string/entered_hint"
+            android:textAppearance="@style/TextAppearance.Ivi.Caption" />
+    </LinearLayout>
+
+    <!-- 调试与诊断面板：默认收起，覆盖在底部 -->
+    <ScrollView
+        android:id="@+id/groupDebug"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:background="@drawable/bg_debug_panel"
+        android:elevation="12dp"
+        android:padding="@dimen/ivi_card_padding"
+        android:visibility="gone"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintHeight_percent="0.6"
+        app:layout_constraintStart_toStartOf="parent">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="@string/debug_panel_title"
+                    android:textAppearance="@style/TextAppearance.Ivi.Section" />
+
+                <androidx.appcompat.widget.AppCompatButton
+                    android:id="@+id/btnDebugClose"
+                    style="@style/Widget.Ivi.Button.Ghost"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/debug_close" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/tvStatus"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/ivi_space_xs"
+                android:text="@string/status_placeholder"
+                android:textAppearance="@style/TextAppearance.Ivi.Mono"
+                android:textIsSelectable="true" />
+
+            <TextView
+                android:id="@+id/tvDeviceStatusDebug"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/ivi_space_xs"
+                android:textAppearance="@style/TextAppearance.Ivi.Mono"
+                android:textIsSelectable="true"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/tvErrorDebug"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/ivi_space_xs"
+                android:textColor="@color/ivi_danger_text"
+                android:textAppearance="@style/TextAppearance.Ivi.Mono"
+                android:textIsSelectable="true"
+                android:visibility="gone" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/ivi_space_m"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <CheckBox
+                    android:id="@+id/cbRearSeat"
+                    style="@style/Widget.Ivi.CheckBox"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/debug_rear_seat" />
+
+                <CheckBox
+                    android:id="@+id/cbDaylightMode"
+                    style="@style/Widget.Ivi.CheckBox"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="@dimen/ivi_space_l"
+                    android:text="@string/debug_daylight_mode" />
+
+                <androidx.appcompat.widget.AppCompatButton
+                    android:id="@+id/btnReset"
+                    style="@style/Widget.Ivi.Button.Ghost"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="@dimen/ivi_space_l"
+                    android:text="@string/debug_restart"
+                    android:textColor="@color/ivi_danger_text" />
+
+                <androidx.appcompat.widget.AppCompatButton
+                    android:id="@+id/btnDebugSkip"
+                    style="@style/Widget.Ivi.Button.Ghost"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="@dimen/ivi_space_m"
+                    android:text="@string/debug_skip" />
+            </LinearLayout>
+        </LinearLayout>
+    </ScrollView>
+</androidx.constraintlayout.widget.ConstraintLayout>

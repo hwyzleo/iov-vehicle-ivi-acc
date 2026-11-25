@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  车机端尺寸与字阶令牌（IVI Design Token System v1.0）。
+  - 触控：盲操主按键 88dp（≥13mm），相邻控件间距 ≥20dp；
+  - 字阶：禁用 <16sp 文字；读数用等宽粗体（Space Grotesk 的可用替代）。
+-->
+<resources>
+    <!-- 间距 -->
+    <dimen name="ivi_space_xs">8dp</dimen>
+    <dimen name="ivi_space_s">12dp</dimen>
+    <dimen name="ivi_space_m">16dp</dimen>
+    <dimen name="ivi_space_l">20dp</dimen>
+    <dimen name="ivi_space_xl">28dp</dimen>
+    <dimen name="ivi_space_xxl">36dp</dimen>
+
+    <!-- 圆角 -->
+    <dimen name="ivi_radius_card">24dp</dimen>
+    <dimen name="ivi_radius_button">16dp</dimen>
+    <dimen name="ivi_radius_notice">16dp</dimen>
+    <dimen name="ivi_radius_plate">28dp</dimen>
+
+    <!-- 触控靶区 -->
+    <dimen name="ivi_touch_primary">88dp</dimen>
+    <dimen name="ivi_touch_secondary">64dp</dimen>
+    <dimen name="ivi_touch_row">72dp</dimen>
+
+    <!-- 字阶（LEVEL 1～4） -->
+    <dimen name="ivi_text_display">32sp</dimen>
+    <dimen name="ivi_text_title">28sp</dimen>
+    <dimen name="ivi_text_section">24sp</dimen>
+    <dimen name="ivi_text_label">18sp</dimen>
+    <dimen name="ivi_text_body">16sp</dimen>
+    <dimen name="ivi_text_metric">40sp</dimen>
+    <dimen name="ivi_text_glyph">96sp</dimen>
+
+    <!-- 结构 -->
+    <dimen name="ivi_header_height">96dp</dimen>
+    <dimen name="ivi_card_padding">24dp</dimen>
+    <dimen name="ivi_page_padding">20dp</dimen>
+</resources>

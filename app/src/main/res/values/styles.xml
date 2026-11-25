@@ -1,0 +1,161 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 车机主题：昼夜自适应（DayNight），默认夜间深色基线 -->
+    <style name="Base.Theme.IviAcc" parent="Theme.AppCompat.DayNight.NoActionBar">
+        <item name="android:windowBackground">@color/ivi_bg</item>
+        <item name="android:colorBackground">@color/ivi_bg</item>
+        <item name="colorPrimary">@color/ivi_accent</item>
+        <item name="colorPrimaryDark">@color/ivi_bg</item>
+        <item name="colorAccent">@color/ivi_accent</item>
+        <item name="colorControlNormal">@color/ivi_accent</item>
+        <item name="colorControlActivated">@color/ivi_accent</item>
+        <item name="android:textColorPrimary">@color/ivi_text_primary</item>
+        <item name="android:textColorSecondary">@color/ivi_text_secondary</item>
+        <item name="android:statusBarColor">@color/ivi_bg</item>
+        <item name="android:navigationBarColor">@color/ivi_bg</item>
+        <item name="alertDialogTheme">@style/Theme.IviAcc.Dialog</item>
+    </style>
+
+    <!-- 夜间：状态栏/导航栏图标保持浅色 -->
+    <style name="Theme.IviAcc" parent="Base.Theme.IviAcc">
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+    </style>
+
+    <style name="Theme.IviAcc.Dialog" parent="Theme.AppCompat.DayNight.Dialog.Alert">
+        <item name="android:windowBackground">@drawable/bg_card</item>
+        <item name="colorAccent">@color/ivi_accent</item>
+        <item name="android:textColorPrimary">@color/ivi_text_primary</item>
+        <item name="buttonBarPositiveButtonStyle">@style/Widget.Ivi.Button.Dialog</item>
+        <item name="buttonBarNegativeButtonStyle">@style/Widget.Ivi.Button.Dialog</item>
+        <item name="buttonBarNeutralButtonStyle">@style/Widget.Ivi.Button.Dialog</item>
+    </style>
+
+    <!-- 字阶：LEVEL 1 读数 / LEVEL 2 标题 / LEVEL 3 标签 / LEVEL 4 极限正文（≥16sp） -->
+    <style name="TextAppearance.Ivi.Display" parent="TextAppearance.AppCompat">
+        <item name="android:textSize">@dimen/ivi_text_display</item>
+        <item name="android:textColor">@color/ivi_text_primary</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+
+    <style name="TextAppearance.Ivi.Title" parent="TextAppearance.AppCompat">
+        <item name="android:textSize">@dimen/ivi_text_title</item>
+        <item name="android:textColor">@color/ivi_text_primary</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+
+    <style name="TextAppearance.Ivi.Section" parent="TextAppearance.AppCompat">
+        <item name="android:textSize">@dimen/ivi_text_section</item>
+        <item name="android:textColor">@color/ivi_text_primary</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+
+    <style name="TextAppearance.Ivi.Label" parent="TextAppearance.AppCompat">
+        <item name="android:textSize">@dimen/ivi_text_label</item>
+        <item name="android:textColor">@color/ivi_text_primary</item>
+    </style>
+
+    <style name="TextAppearance.Ivi.Body" parent="TextAppearance.AppCompat">
+        <item name="android:textSize">@dimen/ivi_text_body</item>
+        <item name="android:textColor">@color/ivi_text_primary</item>
+    </style>
+
+    <style name="TextAppearance.Ivi.Caption" parent="TextAppearance.AppCompat">
+        <item name="android:textSize">@dimen/ivi_text_body</item>
+        <item name="android:textColor">@color/ivi_text_secondary</item>
+    </style>
+
+    <style name="TextAppearance.Ivi.Muted" parent="TextAppearance.AppCompat">
+        <item name="android:textSize">@dimen/ivi_text_body</item>
+        <item name="android:textColor">@color/ivi_text_muted</item>
+    </style>
+
+    <style name="TextAppearance.Ivi.Mono" parent="TextAppearance.AppCompat">
+        <item name="android:textSize">@dimen/ivi_text_body</item>
+        <item name="android:textColor">@color/ivi_text_secondary</item>
+        <item name="android:fontFamily">monospace</item>
+    </style>
+
+    <!-- 读数：等宽数字（tnum）保证倒计时不跳动；中文用系统无衬线，避免等宽字体把汉字拉开 -->
+    <style name="TextAppearance.Ivi.Metric" parent="TextAppearance.AppCompat">
+        <item name="android:textSize">@dimen/ivi_text_metric</item>
+        <item name="android:textColor">@color/ivi_text_primary</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:fontFeatureSettings">tnum</item>
+    </style>
+
+    <!-- 二维码底盘上的说明文字（白底，必须用深色） -->
+    <style name="TextAppearance.Ivi.PlateText" parent="TextAppearance.AppCompat">
+        <item name="android:textSize">@dimen/ivi_text_label</item>
+        <item name="android:textColor">@color/ivi_qr_plate_text</item>
+    </style>
+
+    <!-- 组件 -->
+    <style name="Widget.Ivi.Button.Primary" parent="Widget.AppCompat.Button">
+        <item name="android:background">@drawable/bg_button_primary</item>
+        <item name="android:minHeight">@dimen/ivi_touch_primary</item>
+        <item name="android:paddingStart">@dimen/ivi_space_xl</item>
+        <item name="android:paddingEnd">@dimen/ivi_space_xl</item>
+        <item name="android:textAllCaps">false</item>
+        <item name="android:textColor">@color/ivi_button_primary_text</item>
+        <item name="android:textSize">@dimen/ivi_text_label</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:stateListAnimator">@null</item>
+    </style>
+
+    <style name="Widget.Ivi.Button.Secondary" parent="Widget.AppCompat.Button">
+        <item name="android:background">@drawable/bg_button_secondary</item>
+        <item name="android:minHeight">@dimen/ivi_touch_primary</item>
+        <item name="android:paddingStart">@dimen/ivi_space_xl</item>
+        <item name="android:paddingEnd">@dimen/ivi_space_xl</item>
+        <item name="android:textAllCaps">false</item>
+        <item name="android:textColor">@color/ivi_button_secondary_text</item>
+        <item name="android:textSize">@dimen/ivi_text_label</item>
+        <item name="android:stateListAnimator">@null</item>
+    </style>
+
+    <style name="Widget.Ivi.Button.Ghost" parent="Widget.AppCompat.Button.Borderless">
+        <item name="android:background">?attr/selectableItemBackground</item>
+        <item name="android:minHeight">@dimen/ivi_touch_secondary</item>
+        <item name="android:minWidth">0dp</item>
+        <item name="android:paddingStart">@dimen/ivi_space_m</item>
+        <item name="android:paddingEnd">@dimen/ivi_space_m</item>
+        <item name="android:textAllCaps">false</item>
+        <item name="android:textColor">@color/ivi_accent_text</item>
+        <item name="android:textSize">@dimen/ivi_text_label</item>
+        <item name="android:stateListAnimator">@null</item>
+    </style>
+
+    <!-- 阅读类文本链接：阅读动作不是盲操，按 48dp 次级靶区 -->
+    <style name="Widget.Ivi.Button.Link" parent="Widget.AppCompat.Button.Borderless">
+        <item name="android:background">?attr/selectableItemBackground</item>
+        <item name="android:minHeight">48dp</item>
+        <item name="android:minWidth">0dp</item>
+        <item name="android:paddingStart">@dimen/ivi_space_s</item>
+        <item name="android:paddingEnd">@dimen/ivi_space_s</item>
+        <item name="android:textAllCaps">false</item>
+        <item name="android:textColor">@color/ivi_accent_text</item>
+        <item name="android:textSize">@dimen/ivi_text_body</item>
+        <item name="android:stateListAnimator">@null</item>
+    </style>
+
+    <style name="Widget.Ivi.Button.Dialog" parent="Widget.AppCompat.Button.Borderless">
+        <item name="android:textAllCaps">false</item>
+        <item name="android:textColor">@color/ivi_accent_text</item>
+        <item name="android:textSize">@dimen/ivi_text_label</item>
+        <item name="android:minHeight">@dimen/ivi_touch_secondary</item>
+    </style>
+
+    <style name="Widget.Ivi.CheckBox" parent="Widget.AppCompat.CompoundButton.CheckBox">
+        <item name="android:buttonTint">@color/ivi_accent</item>
+        <item name="android:textColor">@color/ivi_text_primary</item>
+        <item name="android:textSize">@dimen/ivi_text_label</item>
+        <item name="android:minHeight">@dimen/ivi_touch_row</item>
+        <item name="android:gravity">center_vertical</item>
+    </style>
+
+    <style name="Widget.Ivi.Card" parent="">
+        <item name="android:background">@drawable/bg_card</item>
+        <item name="android:padding">@dimen/ivi_card_padding</item>
+    </style>
+</resources>

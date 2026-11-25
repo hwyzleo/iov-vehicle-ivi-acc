@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 日间抗眩模式：冷白底需要深色状态栏/导航栏图标，否则系统时间与电量不可读 -->
+<resources>
+    <style name="Theme.IviAcc" parent="Base.Theme.IviAcc">
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
+    </style>
+</resources>

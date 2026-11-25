@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 主操作：品牌荧光青填充 + 深色文字，88dp 盲操靶区；禁用态降饱和并降低对比 -->
+<ripple xmlns:android="http://schemas.android.com/apk/res/android"
+    android:color="@color/ivi_ripple">
+    <item>
+        <selector>
+            <item android:state_enabled="false">
+                <shape android:shape="rectangle">
+                    <solid android:color="@color/ivi_accent_disabled" />
+                    <corners android:radius="@dimen/ivi_radius_button" />
+                </shape>
+            </item>
+            <item>
+                <shape android:shape="rectangle">
+                    <solid android:color="@color/ivi_accent" />
+                    <corners android:radius="@dimen/ivi_radius_button" />
+                </shape>
+            </item>
+        </selector>
+    </item>
+</ripple>

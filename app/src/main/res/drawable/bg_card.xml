@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 微光容器：夜间为 #141923 深度消光，日间为高光白卡 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/ivi_surface" />
+    <corners android:radius="@dimen/ivi_radius_card" />
+    <stroke
+        android:width="1dp"
+        android:color="@color/ivi_stroke" />
+</shape>

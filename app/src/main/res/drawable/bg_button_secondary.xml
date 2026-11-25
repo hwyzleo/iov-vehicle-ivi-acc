@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 次操作：荧光青描边 + 透明底；禁用态描边降级 -->
+<ripple xmlns:android="http://schemas.android.com/apk/res/android"
+    android:color="@color/ivi_ripple">
+    <item>
+        <selector>
+            <item android:state_enabled="false">
+                <shape android:shape="rectangle">
+                    <solid android:color="@android:color/transparent" />
+                    <corners android:radius="@dimen/ivi_radius_button" />
+                    <stroke
+                        android:width="2dp"
+                        android:color="@color/ivi_accent_disabled" />
+                </shape>
+            </item>
+            <item>
+                <shape android:shape="rectangle">
+                    <solid android:color="@android:color/transparent" />
+                    <corners android:radius="@dimen/ivi_radius_button" />
+                    <stroke
+                        android:width="2dp"
+                        android:color="@color/ivi_accent_text" />
+                </shape>
+            </item>
+        </selector>
+    </item>
+</ripple>
