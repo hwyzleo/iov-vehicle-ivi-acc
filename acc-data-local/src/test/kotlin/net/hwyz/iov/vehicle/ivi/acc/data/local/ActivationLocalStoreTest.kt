@@ -6,6 +6,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
+import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.PrivacyItemDecision
+import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.PrivacyItemState
 import net.hwyz.iov.vehicle.ivi.acc.domain.model.AgreementAcceptance
 import net.hwyz.iov.vehicle.ivi.acc.domain.model.AgreementReference
 import net.hwyz.iov.vehicle.ivi.acc.domain.model.AgreementType
@@ -28,6 +30,9 @@ import java.io.File
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+
+private fun item(code: String, state: PrivacyItemState) =
+    PrivacyItemDecision(authorizationItem = code, state = state, version = 1)
 
 class ActivationLocalStoreTest {
 
@@ -123,8 +128,9 @@ class ActivationLocalStoreTest {
             scopeKey = "AV:account-1|VIN1",
             accountId = "account-1",
             vin = "VIN1",
+            catalogVersion = "v1",
             choice = PrivacyChoice.NOT_GRANTED,
-            items = listOf("PERSONALIZED_CONTENT"),
+            items = listOf(item("PERSONALIZED_CONTENT", PrivacyItemState.NOT_GRANTED)),
             decidedAtEpochMillis = 20L,
             dedupeId = "pvc-1",
             syncState = PrivacySyncState.PENDING,
@@ -137,6 +143,7 @@ class ActivationLocalStoreTest {
             payload = RecordPayload.PrivacyDecisionRecord(
                 vin = "VIN1",
                 accountId = "account-1",
+                catalogVersion = decision.catalogVersion,
                 choice = decision.choice,
                 items = decision.items,
                 decidedAtEpochMillis = decision.decidedAtEpochMillis,
@@ -159,6 +166,7 @@ class ActivationLocalStoreTest {
             scopeKey = "AV:account-1|VIN1",
             accountId = "account-1",
             vin = "VIN1",
+            catalogVersion = "v1",
             choice = PrivacyChoice.GRANTED,
             items = emptyList(),
             decidedAtEpochMillis = 20L,
@@ -178,7 +186,14 @@ class ActivationLocalStoreTest {
                 "pvc-1",
                 RecordType.PRIVACY_DECISION,
                 first.scopeKey,
-                RecordPayload.PrivacyDecisionRecord("VIN1", "account-1", PrivacyChoice.GRANTED, emptyList(), 20L),
+                RecordPayload.PrivacyDecisionRecord(
+                    "VIN1",
+                    "account-1",
+                    "v1",
+                    PrivacyChoice.GRANTED,
+                    emptyList(),
+                    20L,
+                ),
                 20L,
                 20L,
             ),
@@ -189,7 +204,14 @@ class ActivationLocalStoreTest {
                 "pvc-2",
                 RecordType.PRIVACY_DECISION,
                 second.scopeKey,
-                RecordPayload.PrivacyDecisionRecord("VIN1", "account-2", PrivacyChoice.NOT_GRANTED, emptyList(), 20L),
+                RecordPayload.PrivacyDecisionRecord(
+                    "VIN1",
+                    "account-2",
+                    "v1",
+                    PrivacyChoice.NOT_GRANTED,
+                    emptyList(),
+                    20L,
+                ),
                 20L,
                 20L,
             ),
@@ -230,6 +252,59 @@ class ActivationLocalStoreTest {
 
         store.clearAll()
         assertTrue(store.pending(10).isEmpty())
+    }
+
+    @Test
+    fun `login receipt keeps its agreement evidence across a restart`() = runTest {
+        // D-009: TSP accepts the login receipt only when it carries the Account + VIN agreement
+        // evidence; the payload must survive the DataStore round trip (otherwise 401111).
+        val record = PendingRecord.create(
+            id = "login-receipt",
+            type = RecordType.LOGIN_RESULT,
+            scopeKey = "AV:account-1|VIN1",
+            payload = RecordPayload.LoginResult(
+                vin = "VIN1",
+                accountId = "account-1",
+                sessionId = "session-1",
+                bindingOperationId = "op-1",
+                loggedInAtEpochMillis = 40L,
+                loginStatus = "SUCCEEDED",
+                agreements = listOf(
+                    AgreementReference(
+                        type = AgreementType.PRIVACY_POLICY,
+                        version = "1.0",
+                        revisionId = "REV-privacy",
+                        contentHash = "hash-privacy",
+                        language = "zh-CN",
+                    ),
+                    AgreementReference(
+                        type = AgreementType.USER_AGREEMENT,
+                        version = "1.0",
+                        revisionId = "REV-user",
+                        contentHash = "hash-user",
+                        language = "zh-CN",
+                    ),
+                ),
+            ),
+            createdAtEpochMillis = 40L,
+            userActionAtEpochMillis = 40L,
+        )
+        store.enqueue(record)
+        scope.cancel()
+
+        // Re-open the store: the receipt is re-read from disk, exactly like the sync engine does.
+        scope = CoroutineScope(UnconfinedTestDispatcher() + Job())
+        store = createStore()
+        val restored = store.pending(10).single().payload as RecordPayload.LoginResult
+        assertEquals(2, restored.agreements.size)
+        assertEquals(
+            setOf("REV-privacy", "REV-user"),
+            restored.agreements.map { it.revisionId }.toSet(),
+        )
+        val privacy = restored.agreements.first { it.type == AgreementType.PRIVACY_POLICY }
+        val user = restored.agreements.first { it.type == AgreementType.USER_AGREEMENT }
+        assertEquals("hash-privacy", privacy.contentHash)
+        assertEquals("zh-CN", user.language)
     }
 
     @Test

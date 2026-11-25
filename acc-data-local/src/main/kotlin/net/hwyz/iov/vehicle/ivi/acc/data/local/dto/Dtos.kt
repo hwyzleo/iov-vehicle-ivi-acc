@@ -3,7 +3,10 @@ package net.hwyz.iov.vehicle.ivi.acc.data.local.dto
 import kotlinx.serialization.Serializable
 import net.hwyz.iov.vehicle.ivi.acc.domain.model.AgreementAcceptance
 import net.hwyz.iov.vehicle.ivi.acc.domain.model.AgreementReference
+import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.PrivacyItemDecision
+import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.PrivacyItemState
 import net.hwyz.iov.vehicle.ivi.acc.domain.model.AgreementType
+import net.hwyz.iov.vehicle.ivi.acc.domain.model.IviLoginFailureReason
 import net.hwyz.iov.vehicle.ivi.acc.domain.model.PendingRecord
 import net.hwyz.iov.vehicle.ivi.acc.domain.model.PrivacyDecision
 import net.hwyz.iov.vehicle.ivi.acc.domain.model.RecordPayload
@@ -95,24 +98,57 @@ data class AgreementAcceptanceDto(
     }
 }
 
+/**
+ * One persisted privacy item decision: `authorizationItem` + `state` + the local decision sequence.
+ *
+ * The shape is the same as the wire payload, so persistence cannot invent a different version than
+ * the one that is reported.
+ */
+@Serializable
+data class PrivacyItemDto(
+    val authorizationItem: String,
+    val state: String,
+    val version: Int = 1,
+) {
+    fun toDomain(): PrivacyItemDecision = PrivacyItemDecision(
+        authorizationItem = authorizationItem,
+        state = PrivacyItemState.valueOf(state),
+        version = version,
+    )
+
+    companion object {
+        fun from(item: PrivacyItemDecision): PrivacyItemDto = PrivacyItemDto(
+            authorizationItem = item.authorizationItem,
+            state = item.state.name,
+            version = item.version,
+        )
+    }
+}
+
 @Serializable
 data class PrivacyDecisionDto(
     val scopeKey: String,
     val accountId: String,
     val vin: String,
     val choice: String,
+    /** Legacy item codes (pre G-1 records); kept readable, never reported any more. */
     val items: List<String> = emptyList(),
     val decidedAtEpochMillis: Long,
     val dedupeId: String,
     val syncState: String,
     val firstInteractionCompleted: Boolean,
+    /** G-1: catalogue version the decision was taken against; blank on legacy records. */
+    val catalogVersion: String = "",
+    /** Per item decision with the local sequence number. */
+    val itemDecisions: List<PrivacyItemDto> = emptyList(),
 ) {
     fun toDomain(): PrivacyDecision = PrivacyDecision(
         scopeKey = scopeKey,
         accountId = accountId,
         vin = vin,
+        catalogVersion = catalogVersion,
         choice = PrivacyChoice.valueOf(choice),
-        items = items,
+        items = itemDecisions.map { it.toDomain() },
         decidedAtEpochMillis = decidedAtEpochMillis,
         dedupeId = dedupeId,
         syncState = PrivacySyncState.valueOf(syncState),
@@ -125,11 +161,12 @@ data class PrivacyDecisionDto(
             accountId = decision.accountId,
             vin = decision.vin,
             choice = decision.choice.name,
-            items = decision.items,
             decidedAtEpochMillis = decision.decidedAtEpochMillis,
             dedupeId = decision.dedupeId,
             syncState = decision.syncState.name,
             firstInteractionCompleted = decision.firstInteractionCompleted,
+            catalogVersion = decision.catalogVersion,
+            itemDecisions = decision.items.map { PrivacyItemDto.from(it) },
         )
     }
 }
@@ -172,6 +209,12 @@ data class RecordPayloadDto(
     val choice: String? = null,
     val items: List<String> = emptyList(),
     val at: Long = 0L,
+    /** G-1 catalogue version; blank/absent on legacy records -> not deliverable. */
+    val catalogVersion: String? = null,
+    val privacyItems: List<PrivacyItemDto> = emptyList(),
+    val loginStatus: String? = null,
+    /** R-15: mandatory for a FAILED receipt. */
+    val failureReason: String? = null,
 )
 
 @Serializable
@@ -229,17 +272,25 @@ fun RecordPayloadDto.toDomainPayload(): RecordPayload = when (kind) {
     KIND_PRIVACY_DECISION -> RecordPayload.PrivacyDecisionRecord(
         vin = vin,
         accountId = accountId.orEmpty(),
+        // A legacy record without a catalogue version stays blank on purpose: it is not deliverable
+        // and must never be patched with a local value (G-1 / Q-002).
+        catalogVersion = catalogVersion.orEmpty(),
         choice = PrivacyChoice.valueOf(choice ?: PrivacyChoice.NOT_GRANTED.name),
-        items = items,
+        items = privacyItems.map { it.toDomain() },
         decidedAtEpochMillis = at,
     )
 
     KIND_LOGIN_RESULT -> RecordPayload.LoginResult(
         vin = vin,
-        accountId = accountId.orEmpty(),
+        accountId = accountId,
         sessionId = sessionId.orEmpty(),
         bindingOperationId = bindingOperationId,
         loggedInAtEpochMillis = at,
+        loginStatus = loginStatus ?: "SUCCEEDED",
+        // D-009: the login receipt carries the Account + VIN agreement evidence; losing it here
+        // makes the cloud reject the receipt (401111) and the consent never reaches TSP.
+        agreements = agreements.map { it.toDomain() },
+        failureReason = failureReason?.let { runCatching { IviLoginFailureReason.valueOf(it) }.getOrNull() },
     )
 
     KIND_SKIP_ACTIVATION -> RecordPayload.SkipActivation(
@@ -268,8 +319,9 @@ fun fromPayload(payload: RecordPayload): RecordPayloadDto = when (payload) {
         vin = payload.vin,
         accountId = payload.accountId,
         choice = payload.choice.name,
-        items = payload.items,
         at = payload.decidedAtEpochMillis,
+        catalogVersion = payload.catalogVersion,
+        privacyItems = payload.items.map { PrivacyItemDto.from(it) },
     )
 
     is RecordPayload.LoginResult -> RecordPayloadDto(
@@ -278,7 +330,10 @@ fun fromPayload(payload: RecordPayload): RecordPayloadDto = when (payload) {
         accountId = payload.accountId,
         sessionId = payload.sessionId,
         bindingOperationId = payload.bindingOperationId,
+        agreements = payload.agreements.map { AgreementRefDto.from(it) },
         at = payload.loggedInAtEpochMillis,
+        loginStatus = payload.loginStatus,
+        failureReason = payload.failureReason?.name,
     )
 
     is RecordPayload.SkipActivation -> RecordPayloadDto(
