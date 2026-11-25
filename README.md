@@ -28,19 +28,34 @@ at 17. If the local JDK 17 patch level breaks Gradle 8.9, set `org.gradle.java.h
 acc-domain        pure Kotlin/JVM  state machine, coordinator, records, gateways, retry, logging
 acc-data-local    Android library DataStore persistence + keystore sealed login material
 acc-data-cloud    Android library SGW adapter (transport + codec boundary) and scriptable fakes
+acc-data-sec      Android library device identity seam: SEC AIDL client (`identitySec`) + LOCAL impl (`identityLocal`)
 acc-platform      Android library account login / desktop privacy / seat role adapters
-app-demo          Android app    activation UI and end-to-end integration test
+app               Android app    activation UI and end-to-end integration test
 ```
 
 Root package: `net.hwyz.iov.vehicle.ivi.acc`. Layering: View -> ViewModel -> Domain; data and
 platform implement domain interfaces; the domain has no Android, network or UI dependency.
 
+Device tokens are read through the `DeviceTokenSource` port, and the implementation is chosen at
+**build time** (SPEC design D-010「构建变体二选一」, never both at runtime):
+
+| Flavour | Device identity | Holds a device key? |
+|---|---|---|
+| `identitySec` (default) | `acc-data-sec` AIDL client of `iov-vehicle-ivi-sec`: the service signs the proof and calls CIAM, IVI-ACC only consumes the token | no — no key alias at all |
+| `identityLocal` (migration window, deleted in stage three) | `acc-data-sec` LOCAL impl: in-process keystore proof + CIAM device identity grant | yes, `ivi-acc-device` |
+
+Both variants resolve automatically through Gradle variant matching; `identityLocal` builds must not
+carry the AIDL contract (`sec-api`), which is enforced by `./gradlew verifyIdentityFlavorMatrix`.
+
 ## Build and test
 
 ```bash
 export JAVA_HOME=/path/to/jdk-17            # or a JDK 21 for the daemon
-./gradlew test                              # all unit, contract and integration tests
-./gradlew :app-demo:assembleDebug           # demo APK
+./gradlew test                          # all unit, contract and integration tests
+./gradlew :app:assembleIdentitySecDebug     # demo APK (default identity source, ivi-acc-identitySec-debug.apk)
+./gradlew :app:assembleIdentityLocalDebug   # migration window APK (ivi-acc-identityLocal-debug.apk)
+./gradlew verifyIdentityFlavorMatrix        # D-018: both flavours compile, identityLocal has no AIDL
+./gradlew verifyForbiddenIdentitySources    # A-017: no ANDROID_ID fallback
 ```
 
 Test layers:
@@ -53,7 +68,7 @@ Test layers:
 | Persistence | `acc-data-local/.../*Test` | atomic privacy commit, scope isolation, restart, sealed material, expired material, Robolectric wiring |
 | Cloud contract | `acc-data-cloud/.../SgwActivationCloudPortTest` | MockWebServer: timeout => unknown, 5xx/429 retryable, 401/403 auth rejected, 409 contract rejected, unconfigured codec fails fast, idempotency key |
 | Platform | `acc-platform/.../AdaptersTest` | rear seat never prompts, close = NOT_GRANTED, expired material rejected |
-| End to end | `app-demo/.../ActivationEndToEndTest` | A-001..A-008 through real DataStore + fakes |
+| End to end | `app/.../ActivationEndToEndTest` | A-001..A-008 through real DataStore + fakes |
 
 ## Demo
 
@@ -63,7 +78,7 @@ Test layers:
 ~/Library/Android/sdk/platform-tools/adb wait-for-device
 
 # 2. install and launch
-./gradlew :app-demo:installDebug
+./gradlew :app:installDebug
 ~/Library/Android/sdk/platform-tools/adb shell am start \
   -n net.hwyz.iov.vehicle.ivi.acc.demo/.ActivationActivity
 
@@ -115,6 +130,46 @@ out of scope.
 Business failures arrive as HTTP 200 with a non `000000` code; the adapter reads `code` and maps it
 to the five local categories (`401101-401103` -> expired, `401108` -> retryable, others rejected).
 
+## DSN-CR-005 additions (device identity, QR rendering, privacy catalogue)
+
+- **Device identity (D-011 / BLK-4).** `DeviceSerialProvider` (acc-domain) is the only source of the
+  CIAM `device_id`: the unified security service (`DeviceSecurityStatus.deviceId`, `identitySec`) or a
+  device level read only property (`ro.serialno` -> `Build.getSerial()` -> `Build.SERIAL`,
+  `identityLocal`). A secure settings identifier is **not** a source and must not come back; an
+  unavailable serial fails closed (`CONTRACT_REJECTED` / `device-id-unavailable`, no proof, no CIAM
+  call). `KeystoreDeviceProofProvider` and `DeviceProof.deviceId` are non nullable.
+  Mechanical gate: `./tools/check-forbidden-identity-source.sh` or
+  `./gradlew verifyForbiddenIdentitySources` (also enforced by `ForbiddenIdentitySourceGateTest`).
+  The IVI-SEC reader (`iov-vehicle-ivi-sec`) drops the same fallback, so both sides agree on the
+  identifier — a mismatch trips CIAM `701329`.
+- **Activation QR (D-012).** `ActivationCodePresenter<T>` is the port; `ZxingActivationCodePresenter`
+  (acc-platform, `com.google.zxing:core:3.5.3`, Apache-2.0, generation only, no CAMERA permission)
+  renders the payload. The payload is exactly the cloud `qrToken` string (no URL scheme, no Base64,
+  no trimming). Only the **last response** is rendered: a transport replay re-signs the token and the
+  previous bitmap is dropped immediately. Countdown uses the server `expiresAt` and triggers
+  `refreshSession()` on expiry (new `flowGeneration` -> new idempotency key -> new code).
+- **Privacy authorization catalogue (D-013 / G-1).** Items come from
+  `GET /api/vehicle/activation/v1/privacy-authorization/items`
+  (`{catalogVersion, items:[{authorizationItem, displayName, required}]}`, `Accept-Language`,
+  `Cache-Control: private, max-age=300`) and are reported to
+  `POST /api/vehicle/activation/v1/privacy-authorization`
+  (`{reportId, catalogVersion, items:[{authorizationItem, state, version}], occurredAt}`).
+  `version` is the **local decision sequence** (persisted, +1 per decision), never a timestamp and
+  never compared with `catalogVersion`. Unavailable / empty / feature-disabled catalogues block only
+  the report: the user still enters the account (`ENTERED_ACCOUNT`, `privacySync = NOT_SYNCED`,
+  retry entry offered, no local fallback list).
+- **Polling (D-014 / R-13).** Polling runs until the session `expiresAt` (5 s request margin) instead
+  of a local cap; "query now" is single flight and never resets the backoff ladder.
+- **Central error catalogue (D-015 / R-14).** One table (`ActivationErrorCatalog`) classifies TSP
+  `401101-401119`, CIAM `701xxx` and SGW codes; retryable codes can never become terminal, unknown
+  codes default to `CONTRACT_REJECTED` and are counted.
+- **Login receipts (D-005 / BLK-11 / R-15).** A FAILED receipt is generated at session scope
+  (`VS:vin|sessionId`, no account needed), is sent even without `bindingOperationId`, and always
+  carries `failureReason`.
+- **Token lifecycle (D-016) and seat gate (D-017).** Credential invalidation signs the flow out but
+  keeps the cloud binding; a rear seat screen can read the flow yet cannot accept agreements, show a
+  scannable code or submit the skip.
+
 ## Not verified in this baseline
 
 - Real gateway smoke run: the contract is implemented and covered by MockWebServer tests, but a
@@ -125,6 +180,16 @@ to the five local categories (`401101-401103` -> expired, `401108` -> retryable,
 - Emulator smoke run is executed (`Pixel_3a_API_33_arm64-v8a`: install, launch, initial screen
   rendered, no crash, sanitized `state.transition` logs). A full interactive walkthrough of every
   button, real QR scanning and real account login are not executed.
+- DSN-CR-005: the QR payload is proven character by character through an encode/decode round trip,
+  but a real camera scan on a head unit and the countdown/auto-refresh loop have not been observed on
+  device yet. `ZxingActivationCodePresenter`'s Bitmap path has no Robolectric test (acc-platform does
+  not depend on Robolectric).
+- Device identity on real hardware: both flavours were launched on a tablet (Xiaomi Pad 8 Pro,
+  Android 17). `identitySec` binds `iov-vehicle-ivi-sec` and holds `USE_DEVICE_IDENTITY`, but the
+  device is **not provisioned** there, so the run ends with `state=UNKNOWN reason=4` (KEY_UNAVAILABLE)
+  and `sec:7` (TOKEN_UNAVAILABLE) — the deterministic "device not provisioned" prompt with no retry
+  affordance, which is the designed behaviour. A successful activation still requires VIAM
+  provisioning (`deviceId` + certificate) on the security service side.
 - Pending confirmation: offline skip policy, privacy item list, record retention and the post
   factory-reset recovery strategy.
 
@@ -135,7 +200,7 @@ to the five local categories (`401101-401103` -> expired, `401108` -> retryable,
 - `PlatformClassLoader cannot be cast to URLClassLoader` or other daemon errors: run Gradle with a
   JDK 17 patch release >= 17.0.2 or a JDK 21 (`export JAVA_HOME=...`), the compile toolchain stays 17.
 - Android Studio: set the Gradle JDK (Settings > Build > Build Tools > Gradle) to JDK 17/21 and
-  sync; run configurations for `app-demo` appear after the sync.
+  sync; run configurations for `app` appear after the sync.
 - `no connected devices`: start an emulator first, `adb devices` must list it as `device`.
 - `FAILURE: Build failed with an exception. * What went wrong: 25.0.2`
   (`IllegalArgumentException: 25.0.2`) on Android Studio sync: the Gradle daemon ran on JDK 25

@@ -24,9 +24,14 @@ data class CiamRouteConfig(
     val refreshPath: String = "/api/open/oauth/v1/token",
 )
 
-/** Proof of device identity: certificate based or key signature based (D-008). */
+/** Proof of device identity: certificate based or key signature based (D-008, D-011). */
 data class DeviceProof(
-    val deviceId: String?,
+    /**
+     * Device serial used as the CIAM `device_id` claim. Mandatory (BLK-4): CIAM enforces `device_id`
+     * on KEY_SIGNATURE, and a `null` value used to fail every real device with a misleading
+     * AUTH_REJECTED loop.
+     */
+    val deviceId: String,
     val proofType: String,
     val proof: String,
     val nonce: String,
@@ -68,29 +73,17 @@ sealed interface CiamTokenOutcome {
 /**
  * SEC-CIAM vehicle token client (DSN-CR-002 D-003 / D-008, SEC-CIAM-DSN-CR-006).
  *
- * Three interactions: device identity (proof -> device token), binding ticket (device token +
- * ticket -> user token), and refresh (device token + refresh token -> rotated pair).
+ * Two interactions remain here: binding ticket (device token + ticket -> user token) and refresh
+ * (device token + refresh token -> rotated pair). The device identity grant moved out with the
+ * device identity seam (CR-004 §6): the unified security service owns it, or — inside the migration
+ * window only — the `identityLocal` implementation of `acc-data-sec`.
  */
 class CiamAuthClient(
     private val routes: CiamRouteConfig,
     private val clientId: String,
-    private val deviceScope: String = "vehicle.activation vehicle.privacy.report",
     private val client: OkHttpClient = defaultClient(),
 ) {
     private val json = Json { ignoreUnknownKeys = true }
-
-    suspend fun requestDeviceToken(proof: DeviceProof): CiamTokenOutcome {
-        val body = buildJsonObject {
-            put("grantType", GRANT_DEVICE_IDENTITY)
-            put("clientId", clientId)
-            proof.deviceId?.let { put("deviceId", it) }
-            put("proofType", proof.proofType)
-            put("proof", proof.proof)
-            put("nonce", proof.nonce)
-            put("scope", deviceScope)
-        }.toString()
-        return post(routes.tokenPath, body, bearer = null)
-    }
 
     suspend fun exchangeBindingTicket(ticket: String, deviceToken: String): CiamTokenOutcome {
         val body = buildJsonObject {
@@ -148,7 +141,6 @@ class CiamAuthClient(
     }
 
     companion object {
-        const val GRANT_DEVICE_IDENTITY = "urn:openiov:params:oauth:grant-type:device-identity"
         const val GRANT_BINDING_TICKET = "urn:openiov:params:oauth:grant-type:binding-ticket"
         private const val DEFAULT_ACCESS_TTL_SECONDS = 3_600L
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()

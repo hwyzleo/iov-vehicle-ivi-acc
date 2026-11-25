@@ -78,6 +78,9 @@ enum class ActivationOperation {
     REPORT_RECORD,
     PRIVACY_PERSIST,
     PRIVACY_PROMPT,
+
+    /** Privacy authorization catalogue (D-013): retry entry when it is unavailable or empty. */
+    PRIVACY_CATALOG,
 }
 
 data class ActivationError(

@@ -115,6 +115,23 @@ class RecordSyncEngineTest {
     }
 
     @Test
+    fun `a concurrent conflict retries the identical payload once and then gives up`() = runTest {
+        recordStore.enqueue(loginRecord("login-3"))
+        val original = recordStore.records.getValue("login-3")
+        // 401114: the record lost a concurrent write race.
+        cloud.recordOutcome = RecordReportOutcome.Failed(ErrorCategory.RETRYABLE, "401114")
+        assertEquals(0, engine(maxAttempts = 3).flush(10))
+
+        val conflicted = recordStore.records.getValue("login-3")
+        // Retried once with the same dedupe id and the same payload digest, then declared terminal.
+        assertEquals(SyncState.FAILED_TERMINAL, conflicted.syncState)
+        assertEquals(2, conflicted.attempts)
+        assertEquals(original.id, conflicted.id)
+        assertEquals(original.payloadDigest, conflicted.payloadDigest)
+        assertTrue(original.payload.canonical == conflicted.payload.canonical)
+    }
+
+    @Test
     fun `terminal rejection stops retrying`() = runTest {
         recordStore.enqueue(loginRecord("login-2"))
         cloud.recordOutcome = RecordReportOutcome.Failed(ErrorCategory.AUTH_REJECTED)
@@ -138,8 +155,15 @@ class RecordSyncEngineTest {
             scopeKey = "AV:account-1|VIN1",
             accountId = "account-1",
             vin = "VIN1",
+            catalogVersion = "v1",
             choice = PrivacyChoice.GRANTED,
-            items = listOf("PERSONALIZED_CONTENT"),
+            items = listOf(
+                net.hwyz.iov.vehicle.ivi.acc.domain.gateway.PrivacyItemDecision(
+                    authorizationItem = "PERSONALIZED_CONTENT",
+                    state = net.hwyz.iov.vehicle.ivi.acc.domain.gateway.PrivacyItemState.GRANTED,
+                    version = 1,
+                ),
+            ),
             decidedAtEpochMillis = clock.nowEpochMillis(),
             dedupeId = "pvc-1",
             syncState = net.hwyz.iov.vehicle.ivi.acc.domain.state.PrivacySyncState.PENDING,
@@ -152,6 +176,7 @@ class RecordSyncEngineTest {
             payload = RecordPayload.PrivacyDecisionRecord(
                 vin = "VIN1",
                 accountId = "account-1",
+                catalogVersion = decision.catalogVersion,
                 choice = PrivacyChoice.GRANTED,
                 items = decision.items,
                 decidedAtEpochMillis = decision.decidedAtEpochMillis,

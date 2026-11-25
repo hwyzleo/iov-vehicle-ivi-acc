@@ -1,5 +1,9 @@
 package net.hwyz.iov.vehicle.ivi.acc.domain.event
 
+import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.PrivacyAuthorizationItem
+import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.PrivacyCatalogUnavailableReason
+import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.SeatBlockReason
+import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.TokenInvalidationReason
 import net.hwyz.iov.vehicle.ivi.acc.domain.model.AccountRef
 import net.hwyz.iov.vehicle.ivi.acc.domain.model.AgreementAcceptanceSnapshot
 import net.hwyz.iov.vehicle.ivi.acc.domain.model.AgreementDocument
@@ -50,6 +54,15 @@ sealed interface ActivationEvent {
         val agreedAtEpochMillis: Long,
     ) : ActivationEvent
 
+    /**
+     * A checkbox was toggled before submission (DSN-CR-006). Reversible: it must never create an
+     * acceptance, a record or a cloud request.
+     */
+    data class AgreementSelected(
+        val type: AgreementType,
+        val selected: Boolean,
+    ) : ActivationEvent
+
     data class SessionPreparationStarted(val generation: Long) : ActivationEvent
 
     data class SessionCreated(val generation: Long, val session: SessionRef) : ActivationEvent
@@ -88,6 +101,41 @@ sealed interface ActivationEvent {
         val choice: PrivacyChoice,
         val firstInteractionCompleted: Boolean,
     ) : ActivationEvent
+
+    /** Catalogue loading started (D-013): LOADING is a state dimension, never a GuideState value. */
+    data object PrivacyCatalogLoading : ActivationEvent
+
+    /** Catalogue loaded; [items] may be empty, which the reducer maps to CATALOG_EMPTY. */
+    data class PrivacyCatalogLoaded(
+        val catalogVersion: String,
+        val items: List<PrivacyAuthorizationItem>,
+    ) : ActivationEvent
+
+    /**
+     * Catalogue cannot be used (failed / empty / feature disabled): only the report is blocked, the
+     * user still enters the entertainment system (BLK-3 / Q-001).
+     */
+    data class PrivacyCatalogUnavailable(
+        val reason: PrivacyCatalogUnavailableReason,
+    ) : ActivationEvent
+
+    /** Credentials were invalidated or the user signed out (D-016). */
+    data class CredentialsRevoked(val reason: TokenInvalidationReason) : ActivationEvent
+
+    /** Token renewal failed but credentials were kept: only a retry hint (D-016). */
+    data class TokenRenewalFailed(val category: ErrorCategory) : ActivationEvent
+
+    /** Seat gate re-evaluated; null means the screen may drive the flow (D-017). */
+    data class SeatGateEvaluated(val reason: SeatBlockReason?) : ActivationEvent
+
+    /** A front seat only action was attempted on a rear seat screen. */
+    data class SeatBlocked(val reason: SeatBlockReason) : ActivationEvent
+
+    /**
+     * A receipt cannot be sent as is (e.g. SUCCEEDED without `bindingOperationId`): the cloud would
+     * reject it, so the car blocks locally and asks for a re-query (D-005 / BLK-11).
+     */
+    data class ReceiptBlocked(val category: ErrorCategory) : ActivationEvent
 
     data object PrivacyDecisionPersistFailed : ActivationEvent
 

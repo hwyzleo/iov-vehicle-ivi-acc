@@ -21,6 +21,7 @@ import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.SessionRequestInput
 import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.SessionRequestOutcome
 import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.SkipRequestInput
 import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.SkipSubmitOutcome
+import net.hwyz.iov.vehicle.ivi.acc.domain.error.ErrorScope
 import net.hwyz.iov.vehicle.ivi.acc.domain.state.ErrorCategory
 
 /**
@@ -151,7 +152,7 @@ class SgwActivationCloudPort(
             bearerToken = token,
         )
         return when (val call = call(request)) {
-            is CloudCall.Failed -> RecordReportOutcome.Failed(call.category)
+            is CloudCall.Failed -> RecordReportOutcome.Failed(call.category, call.businessCode)
             is CloudCall.Success ->
                 if (codec.decodeAcknowledged(call.data)) {
                     RecordReportOutcome.Acknowledged
@@ -161,19 +162,27 @@ class SgwActivationCloudPort(
         }
     }
 
-    private suspend fun call(request: CloudRequest): CloudCall {
+    private suspend fun call(
+        request: CloudRequest,
+        scope: ErrorScope = ErrorScope.TSP_ACTIVATION,
+    ): CloudCall {
         val result = transport.execute(request)
-        SgwOutcomeClassifier.classifyTransport(result)?.let { return CloudCall.Failed(it) }
+        SgwOutcomeClassifier.classifyTransport(result)?.let { return CloudCall.Failed(it, null) }
         val envelope = SgwOutcomeClassifier.parse(result.body)
-            ?: return CloudCall.Failed(ErrorCategory.CONTRACT_REJECTED)
-        SgwOutcomeClassifier.categoryOf(envelope.code)?.let { return CloudCall.Failed(it) }
-        val data = envelope.objectData ?: return CloudCall.Failed(ErrorCategory.CONTRACT_REJECTED)
+            ?: return CloudCall.Failed(ErrorCategory.CONTRACT_REJECTED, null)
+        if (!SgwOutcomeClassifier.isSuccess(envelope.code)) {
+            // D-015: the category, and with it the retry decision, comes from the central catalogue.
+            val classification = SgwOutcomeClassifier.classificationOf(envelope.code, scope)
+            return CloudCall.Failed(classification.category, envelope.code)
+        }
+        val data = envelope.objectData
+            ?: return CloudCall.Failed(ErrorCategory.CONTRACT_REJECTED, envelope.code)
         return CloudCall.Success(data)
     }
 
     private sealed interface CloudCall {
         data class Success(val data: JsonObject) : CloudCall
 
-        data class Failed(val category: ErrorCategory) : CloudCall
+        data class Failed(val category: ErrorCategory, val businessCode: String?) : CloudCall
     }
 }

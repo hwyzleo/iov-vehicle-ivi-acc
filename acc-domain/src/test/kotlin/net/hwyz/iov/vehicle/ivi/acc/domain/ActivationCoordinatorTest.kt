@@ -56,6 +56,11 @@ class ActivationCoordinatorTest {
 
         h.coordinator.acceptAgreement(AgreementType.USER_AGREEMENT)
         h.runCurrent()
+        // DSN-CR-006: both checkboxes selected is still only a pre-selection.
+        assertTrue(h.cloud.sessionRequests.isEmpty())
+
+        h.coordinator.confirmAgreements()
+        h.runCurrent()
         val qr = h.coordinator.state.value
         assertEquals(GuideState.QR_VISIBLE, qr.guide)
         assertTrue(qr.qrVisible)

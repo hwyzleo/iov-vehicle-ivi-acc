@@ -1,5 +1,6 @@
 package net.hwyz.iov.vehicle.ivi.acc.domain.model
 
+import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.PrivacyItemDecision
 import net.hwyz.iov.vehicle.ivi.acc.domain.state.AgreementSyncState
 import net.hwyz.iov.vehicle.ivi.acc.domain.state.PrivacyChoice
 import net.hwyz.iov.vehicle.ivi.acc.domain.state.PrivacySyncState
@@ -56,31 +57,47 @@ sealed interface RecordPayload {
     data class PrivacyDecisionRecord(
         val vin: String,
         val accountId: String,
+        /** G-1: mandatory, taken verbatim from the catalogue. Blank means "not deliverable". */
+        val catalogVersion: String,
         val choice: PrivacyChoice,
-        val items: List<String>,
+        /** Per item decision: `authorizationItem` + `state` + local decision `version`. */
+        val items: List<PrivacyItemDecision>,
         val decidedAtEpochMillis: Long,
     ) : RecordPayload {
         override val canonical: String
-            get() = "type=PRIVACY_DECISION;vin=$vin;account=$accountId;choice=${choice.name}" +
-                ";items=${items.sorted().joinToString(",")};decidedAt=$decidedAtEpochMillis"
+            get() = buildString {
+                append("type=PRIVACY_DECISION;vin=").append(vin)
+                append(";account=").append(accountId)
+                append(";catalogVersion=").append(catalogVersion)
+                append(";choice=").append(choice.name)
+                append(";decidedAt=").append(decidedAtEpochMillis)
+                items.sortedBy { it.authorizationItem }.forEach { item ->
+                    append(";item=").append(item.authorizationItem)
+                    append(':').append(item.state.name)
+                    append(':').append(item.version)
+                }
+            }
     }
 
     data class LoginResult(
         val vin: String,
-        val accountId: String,
+        val accountId: String?,
         val sessionId: String,
         val bindingOperationId: String?,
         val loggedInAtEpochMillis: Long,
         val loginStatus: String = "SUCCEEDED",
         val agreements: List<AgreementReference> = emptyList(),
+        /** Mandatory for FAILED (R-15); never sent for SUCCEEDED. */
+        val failureReason: IviLoginFailureReason? = null,
     ) : RecordPayload {
         override val canonical: String
             get() = buildString {
                 append("type=LOGIN_RESULT;vin=").append(vin)
-                append(";account=").append(accountId)
+                append(";account=").append(accountId ?: "-")
                 append(";session=").append(sessionId)
                 append(";binding=").append(bindingOperationId ?: "-")
                 append(";status=").append(loginStatus)
+                append(";failure=").append(failureReason?.name ?: "-")
                 append(";loggedInAt=").append(loggedInAtEpochMillis)
                 agreements.sortedBy { it.type.name }.forEach { ref ->
                     append(";doc=").append(ref.type.name)
@@ -174,10 +191,27 @@ data class PrivacyDecision(
     val scopeKey: String,
     val accountId: String,
     val vin: String,
+    /** Catalogue version the decision was taken against (G-1, mandatory). */
+    val catalogVersion: String,
     val choice: PrivacyChoice,
-    val items: List<String>,
+    /** Per item state plus the local decision sequence number (persisted, monotonic). */
+    val items: List<PrivacyItemDecision>,
     val decidedAtEpochMillis: Long,
     val dedupeId: String,
     val syncState: PrivacySyncState,
     val firstInteractionCompleted: Boolean,
 )
+
+/**
+ * Failure reason of a login receipt (R-15).
+ *
+ * The value set is frozen by IOV-TSP: send exactly these names, never a free form message.
+ */
+enum class IviLoginFailureReason {
+    USER_CANCELLED,
+    ACCOUNT_MISMATCH,
+    TOKEN_EXCHANGE_FAILED,
+    TIMEOUT,
+    NETWORK_ERROR,
+    UNKNOWN,
+}

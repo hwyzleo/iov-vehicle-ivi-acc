@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!--
+      identitySec flavour (DSN-CR-004 D-008 / D-010): the device identity lives in the car security
+      service, so the app needs its signature level permission and package visibility.
+      The identityLocal flavour deliberately declares none of this.
+    -->
+    <uses-permission android:name="net.hwyz.iov.vehicle.ivi.sec.permission.USE_DEVICE_IDENTITY" />
+
+    <queries>
+        <package android:name="net.hwyz.iov.vehicle.ivi.sec" />
+    </queries>
+
+</manifest>

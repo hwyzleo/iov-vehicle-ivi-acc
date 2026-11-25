@@ -13,6 +13,8 @@ enum class CloudOperation {
     ISSUE_LOGIN_TICKET,
     REPORT_LOGIN_RESULT,
     REPORT_PRIVACY_AUTHORIZATION,
+    /** Read only privacy authorization catalogue (IVI-ACC-DSN-CR-005 D-013). */
+    LOAD_PRIVACY_CATALOG,
 }
 
 enum class HttpMethod {
@@ -39,18 +41,22 @@ data class CloudRequest(
     val idempotencyKey: String? = null,
     val body: String? = null,
     val bearerToken: String? = null,
+    /** Additional headers (for example `Accept-Language` on the privacy catalogue, G-1). */
+    val headers: Map<String, String> = emptyMap(),
 )
 
 /**
  * Raw transport answer.
  *
  * [statusCode] is only meaningful when [failure] is null; the business code inside the response
- * envelope is classified by the cloud adapter.
+ * envelope is classified by the cloud adapter. [headers] carries response headers that are part of
+ * the contract (for example `Cache-Control: private, max-age=300`).
  */
 data class TransportResult(
     val statusCode: Int,
     val body: String? = null,
     val failure: TransportFailure? = null,
+    val headers: Map<String, String> = emptyMap(),
 )
 
 /** HTTP transport boundary (vehicle side activation routes through EDD-SGW). */
@@ -75,6 +81,7 @@ data class SgwRouteConfig(
             CloudOperation.ISSUE_LOGIN_TICKET to "$PREFIX/session/{sessionId}/login-ticket",
             CloudOperation.REPORT_LOGIN_RESULT to "$PREFIX/session/ivi-login-result",
             CloudOperation.REPORT_PRIVACY_AUTHORIZATION to "$PREFIX/privacy-authorization",
+            CloudOperation.LOAD_PRIVACY_CATALOG to "$PREFIX/privacy-authorization/items",
         )
     }
 }

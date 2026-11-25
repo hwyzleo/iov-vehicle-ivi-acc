@@ -25,7 +25,7 @@ class AdaptersTest {
 
         override suspend fun present(
             scope: PrivacyScope,
-            items: List<String>,
+            items: List<net.hwyz.iov.vehicle.ivi.acc.domain.gateway.PrivacyAuthorizationItem>,
         ): PrivacyPromptOutcome {
             calls++
             return outcome
@@ -46,7 +46,16 @@ class AdaptersTest {
         val adapter = DesktopPrivacyConsentAdapter(StaticSeatRoleProvider(SeatRole.FRONT), prompt)
         assertEquals(
             PrivacyPromptResult.Decided(PrivacyChoice.GRANTED),
-            adapter.requestFirstConsent(scope, listOf("PERSONALIZED_CONTENT")),
+            adapter.requestFirstConsent(
+                scope,
+                listOf(
+                    net.hwyz.iov.vehicle.ivi.acc.domain.gateway.PrivacyAuthorizationItem(
+                        code = "PERSONALIZED_CONTENT",
+                        displayName = "个性化内容",
+                        required = false,
+                    ),
+                ),
+            ),
         )
         assertEquals(1, prompt.calls)
     }

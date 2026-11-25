@@ -6,6 +6,10 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import net.hwyz.iov.vehicle.ivi.acc.data.cloud.transport.TransportFailure
 import net.hwyz.iov.vehicle.ivi.acc.data.cloud.transport.TransportResult
+import net.hwyz.iov.vehicle.ivi.acc.domain.error.ActivationErrorCatalog
+import net.hwyz.iov.vehicle.ivi.acc.domain.error.DefaultActivationErrorCatalog
+import net.hwyz.iov.vehicle.ivi.acc.domain.error.ErrorClassification
+import net.hwyz.iov.vehicle.ivi.acc.domain.error.ErrorScope
 import net.hwyz.iov.vehicle.ivi.acc.domain.state.ErrorCategory
 
 /**
@@ -28,18 +32,28 @@ data class SgwEnvelope(
 /** Reads a string value out of a JSON object; never throws. */
 fun JsonObject.string(name: String): String? = (this[name] as? JsonPrimitive)?.content
 
-/** Reads a boolean value out of a JSON object; never throws. */
-fun JsonObject.boolean(name: String): Boolean? = (this[name] as? JsonPrimitive)?.content?.toBooleanStrictOrNull()
+/**
+ * Reads a boolean value out of a JSON object; never throws.
+ *
+ * A JSON string (`"false"`) is not a boolean: contract payloads must use the real type, and a
+ * silently coerced string would hide a schema drift.
+ */
+fun JsonObject.boolean(name: String): Boolean? {
+    val primitive = this[name] as? JsonPrimitive ?: return null
+    if (primitive.isString) return null
+    return primitive.content.toBooleanStrictOrNull()
+}
 
 /**
  * Maps transport outcomes and business codes to the five car side categories.
  *
- * The mapping is frozen by DSN-CR-002 D-003 and mirrors IOV-TSP `UserVehicleBindingErrorCode`;
- * a retryable/terminal decision never depends on a message string.
+ * The business code mapping is **not** owned here any more: it delegates to the central
+ * [net.hwyz.iov.vehicle.ivi.acc.domain.error.ActivationErrorCatalog] (D-015 / R-14), so TSP, CIAM and
+ * SGW codes share one table. This object only extracts the code and classifies the transport.
  */
 object SgwOutcomeClassifier {
 
-    const val SUCCESS_CODE = "000000"
+    const val SUCCESS_CODE = DefaultActivationErrorCatalog.SUCCESS_CODE
 
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -73,14 +87,20 @@ object SgwOutcomeClassifier {
         )
     }
 
-    /** Business code to category; returns null for the success code. */
-    fun categoryOf(code: String?): ErrorCategory? = when (code) {
-        SUCCESS_CODE -> null
-        // Session no longer usable: refresh the QR code.
-        "401101", "401102", "401103" -> ErrorCategory.EXPIRED
-        // Dependency (VSO/VMD/CMS) temporarily unavailable: retry.
-        "401108" -> ErrorCategory.RETRYABLE
-        // Everything else is a contract/business rejection: terminal until the user acts.
-        else -> ErrorCategory.CONTRACT_REJECTED
+    /** Business code to category inside one scope; null only for the success code. */
+    fun categoryOf(code: String?, scope: ErrorScope = ErrorScope.TSP_ACTIVATION): ErrorCategory? {
+        if (DefaultActivationErrorCatalog.isSuccess(code)) return null
+        return catalog.classify(scope, code).category
     }
+
+    /** Full classification (category + retry advice + recovery flags) of a business code. */
+    fun classificationOf(
+        code: String?,
+        scope: ErrorScope = ErrorScope.TSP_ACTIVATION,
+    ): ErrorClassification = catalog.classify(scope, code)
+
+    fun isSuccess(code: String?): Boolean = DefaultActivationErrorCatalog.isSuccess(code)
+
+    /** Replaceable for tests; the default is the single frozen table. */
+    var catalog: ActivationErrorCatalog = DefaultActivationErrorCatalog
 }

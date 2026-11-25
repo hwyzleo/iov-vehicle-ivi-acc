@@ -15,6 +15,8 @@ pluginManagement {
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
+        // The IVI-SEC contract AAR is published by iov-vehicle-ivi-sec (`:sec-api:publishToMavenLocal`).
+        mavenLocal()
         google()
         mavenCentral()
     }
@@ -26,4 +28,5 @@ include(":acc-domain")
 include(":acc-data-local")
 include(":acc-data-cloud")
 include(":acc-platform")
-include(":app-demo")
+include(":acc-data-sec")
+include(":app")

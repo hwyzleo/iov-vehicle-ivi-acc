@@ -39,4 +39,15 @@ object ScopeKeys {
 
     fun accountVehicle(account: AccountRef, vehicle: VehicleRef): String =
         accountVehicle(account.accountId, vehicle.vin)
+
+    /**
+     * Session scope used by receipts that must be reachable before an account exists (D-005 / BLK-11).
+     *
+     * A failed login has no account (`account` is empty by definition), so the receipt is scoped to
+     * the vehicle plus the session; the cloud resolves the owner through the session VIN.
+     */
+    fun vehicleSession(vin: String, sessionId: String): String = "VS:$vin|$sessionId"
+
+    fun vehicleSession(vehicle: VehicleRef, sessionId: String): String =
+        vehicleSession(vehicle.vin, sessionId)
 }

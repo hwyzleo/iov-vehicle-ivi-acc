@@ -1,14 +1,19 @@
 package net.hwyz.iov.vehicle.ivi.acc.domain.sync
 
 import kotlinx.coroutines.delay
+import net.hwyz.iov.vehicle.ivi.acc.domain.error.ActivationErrorCatalog
+import net.hwyz.iov.vehicle.ivi.acc.domain.error.DefaultActivationErrorCatalog
+import net.hwyz.iov.vehicle.ivi.acc.domain.error.ErrorScope
 import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.ActivationCloudPort
 import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.RecordReportInput
 import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.RecordReportOutcome
 import net.hwyz.iov.vehicle.ivi.acc.domain.log.DiagnosticsLogger
+import net.hwyz.iov.vehicle.ivi.acc.domain.model.PendingRecord
 import net.hwyz.iov.vehicle.ivi.acc.domain.model.RecordType
 import net.hwyz.iov.vehicle.ivi.acc.domain.model.SyncState
 import net.hwyz.iov.vehicle.ivi.acc.domain.retry.RetryPolicy
 import net.hwyz.iov.vehicle.ivi.acc.domain.state.AgreementSyncState
+import net.hwyz.iov.vehicle.ivi.acc.domain.state.ErrorCategory
 import net.hwyz.iov.vehicle.ivi.acc.domain.state.PrivacySyncState
 import net.hwyz.iov.vehicle.ivi.acc.domain.state.isRetryable
 import net.hwyz.iov.vehicle.ivi.acc.domain.store.AgreementAcceptanceStore
@@ -32,7 +37,16 @@ class RecordSyncEngine(
     private val policy: RetryPolicy,
     private val wallClock: WallClock,
     private val logger: DiagnosticsLogger,
+    private val errorCatalog: ActivationErrorCatalog = DefaultActivationErrorCatalog,
+    private val scope: ErrorScope = ErrorScope.TSP_ACTIVATION,
 ) {
+
+    /**
+     * Called for every retryable upload failure with the record, its category and the cloud code.
+     *
+     * The coordinator uses it for the privacy catalogue reload branch (401118 / 401119, D-013).
+     */
+    var onRetryableFailure: (suspend (PendingRecord, ErrorCategory, String?) -> Unit)? = null
 
     /** Uploads one batch of eligible records; returns how many were acknowledged. */
     suspend fun flush(limit: Int = 20): Int {
@@ -61,6 +75,21 @@ class RecordSyncEngine(
                     }
 
                     is RecordReportOutcome.Failed -> {
+                        // 401114 (concurrent conflict) is retried exactly once with the same payload;
+                        // a second conflict is a real conflict and becomes terminal.
+                        val retrySamePayloadOnce = outcome.businessCode?.let { code ->
+                            errorCatalog.classify(scope, code).retrySamePayloadOnce
+                        } ?: false
+                        if (retrySamePayloadOnce && totalAttempts >= SAME_PAYLOAD_RETRY_LIMIT) {
+                            recordStore.markFailed(record.id, totalAttempts)
+                            logger.event(
+                                "record.conflict",
+                                "type" to record.type.name,
+                                "code" to (outcome.businessCode ?: "-"),
+                                "attempts" to totalAttempts.toString(),
+                            )
+                            break
+                        }
                         if (!outcome.category.isRetryable) {
                             recordStore.markFailed(record.id, totalAttempts)
                             logger.event(
@@ -80,6 +109,7 @@ class RecordSyncEngine(
                             "attempts" to totalAttempts.toString(),
                             "category" to outcome.category.name,
                         )
+                        onRetryableFailure?.invoke(record, outcome.category, outcome.businessCode)
                         if (attemptsInPass < policy.maxAttempts) {
                             delay(policy.backoffMillis(totalAttempts))
                         }
@@ -88,6 +118,11 @@ class RecordSyncEngine(
             }
         }
         return acknowledged
+    }
+
+    private companion object {
+        /** 401114: one retry with the identical payload, then treat the conflict as real. */
+        const val SAME_PAYLOAD_RETRY_LIMIT = 2
     }
 
     private suspend fun onAcknowledged(id: String, type: RecordType, scopeKey: String) {

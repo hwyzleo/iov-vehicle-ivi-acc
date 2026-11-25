@@ -15,6 +15,8 @@ androidxConstraintLayout = "2.1.4"
 androidxDatastore = "1.1.1"
 androidxTestCore = "1.6.1"
 androidxTestJunit = "1.2.1"
+iviSecApi = "0.1.0-SNAPSHOT"
+zxing = "3.5.3"
 
 [libraries]
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
@@ -37,6 +39,9 @@ androidx-constraintlayout = { module = "androidx.constraintlayout:constraintlayo
 androidx-datastore-preferences = { module = "androidx.datastore:datastore-preferences", version.ref = "androidxDatastore" }
 androidx-test-core = { module = "androidx.test:core", version.ref = "androidxTestCore" }
 androidx-test-ext-junit = { module = "androidx.test.ext:junit", version.ref = "androidxTestJunit" }
+ivi-sec-api = { module = "net.hwyz.iov.vehicle.ivi.sec:sec-api", version.ref = "iviSecApi" }
+# QR generation only (pure Java, Apache-2.0, no native code, no CAMERA permission needed).
+zxing-core = { module = "com.google.zxing:core", version.ref = "zxing" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

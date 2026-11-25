@@ -27,6 +27,9 @@ dependencies {
     api(project(":acc-domain"))
 
     implementation(libs.kotlinx.coroutines.core)
+    // D-012: QR code generation (Apache-2.0, pure Java). Only acc-platform declares it; the app
+    // consumes the presenter port and needs no zxing type of its own.
+    implementation(libs.zxing.core)
 
     testImplementation(libs.junit.jupiter)
     testImplementation(libs.kotlin.test.junit5)

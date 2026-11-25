@@ -244,7 +244,9 @@ class SgwActivationCloudPortTest {
 
         server.enqueue(MockResponse().setBody("""{"code":"401115","message":"票据不可用"}"""))
         assertEquals(
-            LoginTicketOutcome.Failed(ErrorCategory.CONTRACT_REJECTED),
+            // D-015 (R-14) changed this row: an unusable ticket is an authentication problem and is
+            // recovered by re-querying the session, not a terminal contract rejection.
+            LoginTicketOutcome.Failed(ErrorCategory.AUTH_REJECTED),
             port.issueLoginTicket(LoginTicketRequestInput(vehicle, session, "OP-1")),
         )
     }
@@ -286,8 +288,17 @@ class SgwActivationCloudPortTest {
             payload = RecordPayload.PrivacyDecisionRecord(
                 vin = vehicle.vin,
                 accountId = "account-001",
+                // D-013 / G-1: the catalogue version is mandatory and the item version is the local
+                // decision sequence, not the decision timestamp.
+                catalogVersion = "v1",
                 choice = PrivacyChoice.GRANTED,
-                items = listOf("PERSONALIZED_CONTENT"),
+                items = listOf(
+                    net.hwyz.iov.vehicle.ivi.acc.domain.gateway.PrivacyItemDecision(
+                        authorizationItem = "PERSONALIZED_CONTENT",
+                        state = net.hwyz.iov.vehicle.ivi.acc.domain.gateway.PrivacyItemState.GRANTED,
+                        version = 3,
+                    ),
+                ),
                 decidedAtEpochMillis = 1_700_000_000_500L,
             ),
             createdAtEpochMillis = 1_700_000_000_500L,
@@ -297,7 +308,8 @@ class SgwActivationCloudPortTest {
         val privacyBody = server.takeRequest().body.readUtf8()
         assertTrue(privacyBody.contains("\"authorizationItem\":\"PERSONALIZED_CONTENT\""))
         assertTrue(privacyBody.contains("\"state\":\"GRANTED\""))
-        assertTrue(privacyBody.contains("\"version\":1700000000500"))
+        assertTrue(privacyBody.contains("\"catalogVersion\":\"v1\""))
+        assertTrue(privacyBody.contains("\"version\":3"))
     }
 
     @Test

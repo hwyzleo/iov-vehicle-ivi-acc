@@ -8,6 +8,8 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import net.hwyz.iov.vehicle.ivi.acc.data.cloud.boolean
 import net.hwyz.iov.vehicle.ivi.acc.data.cloud.string
+import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.PrivacyAuthorizationItem
+import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.PrivacyItemState
 import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.SessionRequestInput
 import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.SkipRequestInput
 import net.hwyz.iov.vehicle.ivi.acc.domain.model.AgreementBundle
@@ -20,8 +22,13 @@ import net.hwyz.iov.vehicle.ivi.acc.domain.model.RecordPayload
 import net.hwyz.iov.vehicle.ivi.acc.domain.model.RecordType
 import net.hwyz.iov.vehicle.ivi.acc.domain.model.SessionObservation
 import net.hwyz.iov.vehicle.ivi.acc.domain.model.SessionRef
-import net.hwyz.iov.vehicle.ivi.acc.domain.state.PrivacyChoice
 import java.time.Instant
+
+/** Decoded privacy catalogue response (G-1: `catalogVersion` + `items`). */
+data class DecodedPrivacyCatalog(
+    val catalogVersion: String,
+    val items: List<PrivacyAuthorizationItem>,
+)
 
 /** Thrown when the cloud payload contract is not configured for an operation. */
 class PayloadContractPendingException(operation: String) :
@@ -30,7 +37,8 @@ class PayloadContractPendingException(operation: String) :
 /**
  * Request/response payload boundary.
  *
- * The wire schema is frozen by DSN-CR-002 D-003 (IOV-TSP vehicle side activation API). Bodies are
+ * The wire schema is frozen by DSN-CR-002 D-003 (IOV-TSP vehicle side activation API) and, for the
+ * privacy catalogue and report, by the G-1 cross platform contract (DSN-CR-005 D-013). Bodies are
  * JSON; decoders return null for a payload they cannot interpret instead of inventing defaults.
  */
 interface CloudPayloadCodec {
@@ -51,6 +59,9 @@ interface CloudPayloadCodec {
     fun encodeLoginResult(record: PendingRecord): String?
 
     fun encodePrivacyReport(record: PendingRecord): String?
+
+    /** G-1 catalogue decode; any missing or unknown field invalidates the whole payload. */
+    fun decodePrivacyCatalog(data: JsonObject): DecodedPrivacyCatalog?
 }
 
 /**
@@ -132,11 +143,15 @@ class JsonCloudPayloadCodec : CloudPayloadCodec {
 
     override fun encodeLoginResult(record: PendingRecord): String? {
         val payload = record.payload as? RecordPayload.LoginResult ?: return null
+        // R-15: a FAILED receipt without a failure reason is not deliverable.
+        if (payload.loginStatus == FAILED_STATUS && payload.failureReason == null) return null
         return buildJsonObject {
             put("sessionId", payload.sessionId)
+            // BLK-11: the field is optional on the wire, the receipt itself is mandatory.
             payload.bindingOperationId?.let { put("bindingOperationId", it) }
             put("reportId", record.id)
             put("loginStatus", payload.loginStatus)
+            put("failureReason", payload.failureReason?.name ?: "UNKNOWN")
             if (payload.agreements.isNotEmpty()) {
                 put(
                     "agreements",
@@ -149,23 +164,29 @@ class JsonCloudPayloadCodec : CloudPayloadCodec {
 
     override fun encodePrivacyReport(record: PendingRecord): String? {
         val payload = record.payload as? RecordPayload.PrivacyDecisionRecord ?: return null
-        val state = when (payload.choice) {
-            PrivacyChoice.GRANTED -> "GRANTED"
-            PrivacyChoice.NOT_GRANTED -> "NOT_GRANTED"
-            PrivacyChoice.NOT_DECIDED -> return null
-        }
+        // G-1: `catalogVersion` is mandatory and the item list may never be empty.
+        if (payload.catalogVersion.isBlank()) return null
+        if (payload.items.isEmpty()) return null
         return buildJsonObject {
             put("reportId", record.id)
+            put("catalogVersion", payload.catalogVersion)
             put(
                 "items",
                 buildJsonArray {
-                    payload.items.sorted().forEach { item ->
+                    payload.items.sortedBy { it.authorizationItem }.forEach { item ->
                         add(
                             buildJsonObject {
-                                put("authorizationItem", item)
-                                put("state", state)
-                                // Local monotonic version: the cloud only accepts newer versions.
-                                put("version", payload.decidedAtEpochMillis)
+                                put("authorizationItem", item.authorizationItem)
+                                put(
+                                    "state",
+                                    when (item.state) {
+                                        PrivacyItemState.GRANTED -> "GRANTED"
+                                        PrivacyItemState.NOT_GRANTED -> "NOT_GRANTED"
+                                    },
+                                )
+                                // Local decision sequence number, not a timestamp and not a catalogue
+                                // version: the cloud only uses it for same item convergence.
+                                put("version", item.version)
                             },
                         )
                     }
@@ -173,6 +194,23 @@ class JsonCloudPayloadCodec : CloudPayloadCodec {
             )
             put("occurredAt", Instant.ofEpochMilli(payload.decidedAtEpochMillis).toString())
         }.toString()
+    }
+
+    override fun decodePrivacyCatalog(data: JsonObject): DecodedPrivacyCatalog? {
+        val catalogVersion = data.string("catalogVersion")?.takeIf { it.isNotBlank() } ?: return null
+        val array = data["items"] as? JsonArray ?: return null
+        val items = array.mapNotNull { element ->
+            val item = element as? JsonObject ?: return@mapNotNull null
+            val code = item.string("authorizationItem")?.takeIf { it.isNotBlank() }
+                ?: return@mapNotNull null
+            val displayName = item.string("displayName")?.takeIf { it.isNotBlank() }
+                ?: return@mapNotNull null
+            val required = item.boolean("required") ?: return@mapNotNull null
+            PrivacyAuthorizationItem(code = code, displayName = displayName, required = required)
+        }
+        // A partially decoded list is a contract violation, not a smaller catalogue.
+        if (items.size != array.size) return null
+        return DecodedPrivacyCatalog(catalogVersion = catalogVersion, items = items)
     }
 
     private fun acceptance(reference: AgreementReference): JsonObject = buildJsonObject {
@@ -186,6 +224,8 @@ class JsonCloudPayloadCodec : CloudPayloadCodec {
 }
 
 private fun String.toEpochMilli(): Long? = runCatching { Instant.parse(this).toEpochMilli() }.getOrNull()
+
+private const val FAILED_STATUS = "FAILED"
 
 /** Kind of cloud report a pending record maps to; unknown kinds are never reported. */
 fun RecordType.cloudReport(): CloudReport? = when (this) {

@@ -65,6 +65,8 @@ class ActivationTestHarness(
     val cloud = FakeCloudPort()
     val loginGateway = FakeLoginGateway()
     val privacyGateway = FakePrivacyGateway()
+    val catalogGateway = FakePrivacyCatalogGateway()
+    val tokenEvents = FakeTokenLifecycleEvents()
     val flowStore = InMemoryFlowStore()
     val recordStore = InMemoryRecordStore()
     val agreementStore = InMemoryAgreementStore()
@@ -73,21 +75,26 @@ class ActivationTestHarness(
     val clock = MutableClock()
     val logger = RecordingDiagnosticsLogger()
     val ids = FixedIdGenerator()
-    val config = ActivationConfig(
-        sessionPoll = SessionPollPolicy(
-            intervalMillis = 100L,
-            timeoutMillis = 1_000L,
-            maxAttempts = 3,
-        ),
+    /** Reassignable so a single test can exercise a different configuration. */
+    var config = ActivationConfig(
+        // R-13: a fixed 100 ms step; the deadline is the session expiry, so tests stay deterministic.
+        sessionPoll = SessionPollPolicy(backoffMillis = listOf(100L), requestMarginMillis = 0L),
         recordRetry = RetryPolicy(
             maxAttempts = 2,
             initialBackoffMillis = 10L,
             maxBackoffMillis = 20L,
         ),
-        privacyPromptItems = listOf("PERSONALIZED_CONTENT"),
     )
 
-    val coordinator: ActivationCoordinator = newCoordinator()
+    var coordinator: ActivationCoordinator = newCoordinator()
+        private set
+
+    /** Closes the current coordinator and builds a new one against the same stores. */
+    fun restart(): ActivationCoordinator {
+        coordinator.close()
+        coordinator = newCoordinator()
+        return coordinator
+    }
 
     fun newCoordinator(): ActivationCoordinator = ActivationCoordinator(
         vehicle = vehicle,
@@ -116,7 +123,14 @@ class ActivationTestHarness(
         ids = ids,
         scope = scope,
         dispatcher = StandardTestDispatcher(scheduler),
+        privacyCatalog = catalogGateway,
+        tokenEvents = tokenEvents,
+        seatRoleProvider = { seatRole },
     )
+
+    /** Seat role as seen by the domain; flipping it exercises the D-017 gates. */
+    var seatRole: net.hwyz.iov.vehicle.ivi.acc.domain.gateway.SeatRole =
+        net.hwyz.iov.vehicle.ivi.acc.domain.gateway.SeatRole.FRONT
 
     fun runCurrent() {
         scheduler.runCurrent()
@@ -132,9 +146,12 @@ class ActivationTestHarness(
     }
 
     fun acceptBothAgreements() {
-        coordinator.acceptAgreement(AgreementType.PRIVACY_POLICY)
+        // DSN-CR-006: selecting is a reversible pre-selection; only confirmAgreements() submits.
+        coordinator.selectAgreement(AgreementType.PRIVACY_POLICY, true)
         runCurrent()
-        coordinator.acceptAgreement(AgreementType.USER_AGREEMENT)
+        coordinator.selectAgreement(AgreementType.USER_AGREEMENT, true)
+        runCurrent()
+        coordinator.confirmAgreements()
         runCurrent()
     }
 
@@ -209,8 +226,12 @@ class FakeCloudPort : ActivationCloudPort {
         )
     }
 
+    /** When set, a query suspends on the gate, which lets a test observe the in flight state. */
+    var queryGate: kotlinx.coroutines.CompletableDeferred<Unit>? = null
+
     override suspend fun querySession(input: SessionQueryInput): SessionQueryOutcome {
         queryCount++
+        queryGate?.await()
         return if (queryOutcomes.isNotEmpty()) queryOutcomes.removeFirst() else defaultQueryOutcome
     }
 
@@ -255,15 +276,72 @@ class FakePrivacyGateway(
         private set
     var lastScope: PrivacyScope? = null
         private set
+    var lastItems: List<net.hwyz.iov.vehicle.ivi.acc.domain.gateway.PrivacyAuthorizationItem> = emptyList()
+        private set
 
     override suspend fun requestFirstConsent(
         scope: PrivacyScope,
-        items: List<String>,
+        items: List<net.hwyz.iov.vehicle.ivi.acc.domain.gateway.PrivacyAuthorizationItem>,
     ): PrivacyPromptResult {
         calls++
         lastScope = scope
+        lastItems = items
         return result
     }
+}
+
+/** Catalogue gateway fake: D-013 three-state behaviour is driven through [outcome]. */
+class FakePrivacyCatalogGateway(
+    var outcome: net.hwyz.iov.vehicle.ivi.acc.domain.gateway.PrivacyCatalogOutcome =
+        net.hwyz.iov.vehicle.ivi.acc.domain.gateway.PrivacyCatalogOutcome.Loaded(
+            catalogVersion = "v1",
+            items = listOf(
+                net.hwyz.iov.vehicle.ivi.acc.domain.gateway.PrivacyAuthorizationItem(
+                    code = "PERSONALIZED_CONTENT",
+                    displayName = "\u4e2a\u6027\u5316\u5185\u5bb9",
+                    required = false,
+                ),
+            ),
+        ),
+) : net.hwyz.iov.vehicle.ivi.acc.domain.gateway.PrivacyAuthorizationCatalogGateway {
+    /**
+     * Answer of every load after the first one (used by the 401118/401119 rebuild tests, where the
+     * reload must observe a newer catalogue version than the one the decision was taken against).
+     */
+    var reloadOutcome: net.hwyz.iov.vehicle.ivi.acc.domain.gateway.PrivacyCatalogOutcome? = null
+    var loadCount = 0
+        private set
+    var lastLanguage: String? = null
+        private set
+
+    override suspend fun catalog(
+        language: String,
+    ): net.hwyz.iov.vehicle.ivi.acc.domain.gateway.PrivacyCatalogOutcome {
+        loadCount++
+        lastLanguage = language
+        return if (loadCount > 1) reloadOutcome ?: outcome else outcome
+    }
+}
+
+/** Token lifecycle emission for D-016 tests. */
+class FakeTokenLifecycleEvents : net.hwyz.iov.vehicle.ivi.acc.domain.gateway.TokenLifecycleEvents {
+    private val flow = kotlinx.coroutines.flow.MutableSharedFlow<
+        net.hwyz.iov.vehicle.ivi.acc.domain.gateway.TokenLifecycleEvent,
+        >(replay = 0, extraBufferCapacity = 16)
+    private val pending = mutableListOf<net.hwyz.iov.vehicle.ivi.acc.domain.gateway.TokenLifecycleEvent>()
+
+    override fun events(): kotlinx.coroutines.flow.Flow<
+        net.hwyz.iov.vehicle.ivi.acc.domain.gateway.TokenLifecycleEvent,
+        > = flow
+
+    /** Emits now (a subscriber is already collecting because the coordinator starts in the harness). */
+    fun emit(event: net.hwyz.iov.vehicle.ivi.acc.domain.gateway.TokenLifecycleEvent) {
+        pending += event
+        flow.tryEmit(event)
+    }
+
+    val emitted: List<net.hwyz.iov.vehicle.ivi.acc.domain.gateway.TokenLifecycleEvent>
+        get() = pending.toList()
 }
 
 class InMemoryFlowStore : LocalFlowStore {
@@ -287,7 +365,12 @@ class InMemoryFlowStore : LocalFlowStore {
 class InMemoryAgreementStore : AgreementAcceptanceStore {
     private val records = linkedMapOf<Pair<String, AgreementType>, AgreementAcceptance>()
 
+    /** Number of persisted snapshot batches; DSN-CR-006 submits both agreements in one batch. */
+    var saveAllCalls = 0
+        private set
+
     override suspend fun saveAll(records: List<AgreementAcceptance>) {
+        saveAllCalls++
         records.forEach { record -> this.records[record.scopeKey to record.type] = record }
     }
 

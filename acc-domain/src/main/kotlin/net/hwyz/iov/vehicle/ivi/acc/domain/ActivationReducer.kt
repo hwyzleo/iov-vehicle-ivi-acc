@@ -2,6 +2,10 @@ package net.hwyz.iov.vehicle.ivi.acc.domain
 
 import net.hwyz.iov.vehicle.ivi.acc.domain.event.ActivationEvent
 import net.hwyz.iov.vehicle.ivi.acc.domain.event.RestoredFlow
+import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.PrivacyAuthorizationItem
+import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.PrivacyCatalogState
+import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.PrivacyCatalogUnavailableReason
+import net.hwyz.iov.vehicle.ivi.acc.domain.gateway.TokenInvalidationReason
 import net.hwyz.iov.vehicle.ivi.acc.domain.model.AccountRef
 import net.hwyz.iov.vehicle.ivi.acc.domain.model.AgreementAcceptanceSnapshot
 import net.hwyz.iov.vehicle.ivi.acc.domain.model.AgreementDocument
@@ -33,6 +37,7 @@ object ActivationReducer {
         is ActivationEvent.DocumentsLoaded -> documentsLoaded(state, event.documents)
         is ActivationEvent.DocumentsLoadFailed -> documentsLoadFailed(state, event.category)
         is ActivationEvent.AgreementAccepted -> agreementAccepted(state, event)
+        is ActivationEvent.AgreementSelected -> agreementSelected(state, event)
         is ActivationEvent.SessionPreparationStarted -> sessionPreparationStarted(state, event.generation)
         is ActivationEvent.SessionCreated -> sessionCreated(state, event.generation, event.session)
         is ActivationEvent.SessionRequestFailed ->
@@ -70,6 +75,54 @@ object ActivationReducer {
 
         is ActivationEvent.PrivacyPromptRequiresFrontSeat ->
             state.copy(privacyFrontSeatRequired = event.required)
+
+        ActivationEvent.PrivacyCatalogLoading -> state.copy(
+            privacyCatalog = PrivacyCatalogState.LOADING,
+            privacyCatalogUnavailableReason = null,
+        )
+
+        is ActivationEvent.PrivacyCatalogLoaded -> privacyCatalogLoaded(
+            state = state,
+            catalogVersion = event.catalogVersion,
+            items = event.items,
+        )
+
+        is ActivationEvent.PrivacyCatalogUnavailable -> privacyCatalogUnavailable(state, event.reason)
+
+        is ActivationEvent.CredentialsRevoked -> credentialsRevoked(state, event.reason)
+
+        is ActivationEvent.TokenRenewalFailed -> state.copy(
+            login = if (state.login == LoginState.SIGNED_IN || state.login == LoginState.IN_PROGRESS) {
+                LoginState.RETRY_REQUIRED
+            } else {
+                state.login
+            },
+            error = ActivationError(ActivationOperation.REPORT_RECORD, event.category),
+        )
+
+        is ActivationEvent.SeatGateEvaluated -> state.copy(
+            seatBlocked = event.reason,
+            privacyFrontSeatRequired = event.reason != null,
+            skip = if (event.reason != null && state.skip == SkipState.SUBMITTING) {
+                SkipState.IDLE
+            } else {
+                state.skip
+            },
+        )
+
+        is ActivationEvent.SeatBlocked -> state.copy(
+            seatBlocked = event.reason,
+            privacyFrontSeatRequired = true,
+        )
+
+        is ActivationEvent.ReceiptBlocked -> state.copy(
+            login = if (state.login == LoginState.SIGNED_IN) {
+                LoginState.RETRY_REQUIRED
+            } else {
+                state.login
+            },
+            error = ActivationError(ActivationOperation.REPORT_RECORD, event.category),
+        )
 
         is ActivationEvent.PrivacySyncUpdated -> state.copy(privacySync = event.sync)
         is ActivationEvent.AgreementSyncUpdated -> state.copy(agreementSync = event.sync)
@@ -161,6 +214,8 @@ object ActivationReducer {
                 sessionRef = null,
                 skip = SkipState.IDLE,
                 accountContinuationSuggested = false,
+                // The pre-submit selection belonged to the superseded version.
+                agreementSelection = emptySet(),
             )
         }
         // A recovered document load returns to the guide instead of staying on the error page.
@@ -215,9 +270,31 @@ object ActivationReducer {
         val acceptances = state.acceptances.filterNot { it.type == event.type } + snapshot
         return state.copy(
             acceptances = acceptances,
+            // The committed type no longer needs a pre-submit selection.
+            agreementSelection = state.agreementSelection - event.type,
             agreementSync = AgreementSyncState.PENDING,
             error = null,
         )
+    }
+
+    /**
+     * Pre-submit checkbox toggle (DSN-CR-006): reversible, no consent fact and no cloud request.
+     * Refused once the consent was submitted, on a rear seat, or before both documents are usable.
+     */
+    private fun agreementSelected(
+        state: ActivationState,
+        event: ActivationEvent.AgreementSelected,
+    ): ActivationState {
+        if (state.entertainmentEntryAllowed) return state
+        if (state.acceptances.isNotEmpty()) return state
+        if (!state.documentsComplete) return state
+        if (state.seatBlocked != null) return state
+        val selection = if (event.selected) {
+            state.agreementSelection + event.type
+        } else {
+            state.agreementSelection - event.type
+        }
+        return state.copy(agreementSelection = selection)
     }
 
     private fun sessionPreparationStarted(state: ActivationState, generation: Long): ActivationState =
@@ -387,6 +464,12 @@ object ActivationReducer {
             login = LoginState.SIGNED_IN,
             account = account,
             privacyFirstInteractionCompleted = firstInteractionCompleted,
+            // A new account scope always starts from an unknown catalogue.
+            privacyCatalog = if (firstInteractionCompleted) {
+                PrivacyCatalogState.NOT_LOADED
+            } else {
+                state.privacyCatalog
+            },
             agreementSync = AgreementSyncState.PENDING,
             guide = if (firstInteractionCompleted) {
                 GuideState.ENTERED_ACCOUNT
@@ -430,4 +513,63 @@ object ActivationReducer {
 
     private fun ErrorCategory.isRetryableCategory(): Boolean =
         this == ErrorCategory.RETRYABLE || this == ErrorCategory.RESULT_UNKNOWN
+
+    private fun privacyCatalogLoaded(
+        state: ActivationState,
+        catalogVersion: String,
+        items: List<PrivacyAuthorizationItem>,
+    ): ActivationState {
+        if (catalogVersion.isBlank()) {
+            // A catalogue without a version cannot be reported against: treated as unavailable.
+            return privacyCatalogUnavailable(state, PrivacyCatalogUnavailableReason.CATALOG_FAILED)
+        }
+        if (items.isEmpty()) {
+            // BLK-3: an empty catalogue never blocks the entertainment system.
+            return privacyCatalogUnavailable(state, PrivacyCatalogUnavailableReason.CATALOG_EMPTY)
+        }
+        return state.copy(
+            privacyCatalog = PrivacyCatalogState.LOADED,
+            privacyCatalogVersion = catalogVersion,
+            privacyCatalogItems = items,
+            privacyCatalogUnavailableReason = null,
+        )
+    }
+
+    /**
+     * Q-001 / BLK-3 transition: the catalogue is unusable, so the report is blocked, but the user
+     * enters the account. It must not become RECOVERABLE_ERROR and must not clear cloud facts.
+     */
+    private fun privacyCatalogUnavailable(
+        state: ActivationState,
+        reason: PrivacyCatalogUnavailableReason,
+    ): ActivationState {
+        if (state.login != LoginState.SIGNED_IN) return state
+        return state.copy(
+            guide = GuideState.ENTERED_ACCOUNT,
+            privacyCatalog = PrivacyCatalogState.UNAVAILABLE,
+            privacyCatalogUnavailableReason = reason,
+            privacyCatalogItems = emptyList(),
+            privacySync = net.hwyz.iov.vehicle.ivi.acc.domain.state.PrivacySyncState.NOT_SYNCED,
+            privacyFirstInteractionCompleted = false,
+            error = null,
+        )
+    }
+
+    /** D-016: revoked credentials drop the local account, never the cloud binding fact. */
+    private fun credentialsRevoked(
+        state: ActivationState,
+        reason: TokenInvalidationReason,
+    ): ActivationState {
+        val nextGuide = when (state.guide) {
+            GuideState.ENTERED_ACCOUNT -> GuideState.LOGIN_PENDING
+            else -> state.guide
+        }
+        return state.copy(
+            login = LoginState.SIGNED_OUT,
+            account = null,
+            guide = nextGuide,
+            // Binding facts and VIN scoped skip records are preserved on purpose.
+            error = null,
+        )
+    }
 }

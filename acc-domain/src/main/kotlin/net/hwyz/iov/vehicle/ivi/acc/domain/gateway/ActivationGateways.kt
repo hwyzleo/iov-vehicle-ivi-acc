@@ -95,7 +95,11 @@ data class RecordReportInput(val record: PendingRecord)
 sealed interface RecordReportOutcome {
     data object Acknowledged : RecordReportOutcome
 
-    data class Failed(val category: ErrorCategory) : RecordReportOutcome
+    data class Failed(
+        val category: ErrorCategory,
+        /** Cloud business code when available (e.g. 401118 / 401119), for the recovery branch. */
+        val businessCode: String? = null,
+    ) : RecordReportOutcome
 }
 
 /** Local secure login capability. The domain never generates user tokens itself. */
@@ -113,13 +117,26 @@ sealed interface LoginOutcome {
 
 /** First interaction privacy consent, delegated to the vehicle desktop. */
 interface PrivacyConsentGateway {
-    suspend fun requestFirstConsent(scope: PrivacyScope, items: List<String>): PrivacyPromptResult
+    /**
+     * Shows the cloud catalogue items (displayName is the title) and returns the per item decision.
+     *
+     * The catalogue is the only source of items: an empty list is never prompted for and never
+     * reported (D-013).
+     */
+    suspend fun requestFirstConsent(
+        scope: PrivacyScope,
+        items: List<PrivacyAuthorizationItem>,
+    ): PrivacyPromptResult
 }
 
 data class PrivacyScope(val vehicle: VehicleRef, val account: AccountRef)
 
 sealed interface PrivacyPromptResult {
-    data class Decided(val choice: PrivacyChoice) : PrivacyPromptResult
+    data class Decided(
+        val choice: PrivacyChoice,
+        /** Per item state; when empty the aggregate [choice] applies to every catalogue item. */
+        val itemStates: Map<String, PrivacyItemState> = emptyMap(),
+    ) : PrivacyPromptResult
 
     /** No answer is available right now (for example the desktop service is busy). */
     data class Unavailable(val category: ErrorCategory) : PrivacyPromptResult

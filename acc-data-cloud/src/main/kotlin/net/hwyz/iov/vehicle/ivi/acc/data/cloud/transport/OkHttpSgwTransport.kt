@@ -35,6 +35,7 @@ class OkHttpSgwTransport(
         val builder = Request.Builder().url(url)
         request.bearerToken?.let { builder.header("Authorization", "Bearer $it") }
         request.idempotencyKey?.let { builder.header("Idempotency-Key", it) }
+        request.headers.forEach { (name, value) -> builder.header(name, value) }
         val httpRequest = when (request.method) {
             HttpMethod.GET -> builder.get().build()
             HttpMethod.POST -> builder.post((request.body ?: "").toRequestBody(JSON_MEDIA_TYPE)).build()
@@ -45,6 +46,8 @@ class OkHttpSgwTransport(
                 TransportResult(
                     statusCode = response.code,
                     body = response.body?.string(),
+                    // Response headers are part of the contract for the catalogue (Cache-Control).
+                    headers = response.headers.toMap(),
                 )
             }
         } catch (timeout: SocketTimeoutException) {
